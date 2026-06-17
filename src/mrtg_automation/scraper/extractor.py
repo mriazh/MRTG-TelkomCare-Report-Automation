@@ -10,7 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, UnexpectedAlertPresentException, NoAlertPresentException
 
 logger = logging.getLogger('mrtg_automation.scraper.extractor')
 
@@ -18,6 +18,21 @@ class GraphExtractor:
     def __init__(self, driver, mode='sid'):
         self.driver = driver
         self.mode = mode.lower()
+
+    def dismiss_alert_if_present(self) -> bool:
+        """Dismiss browser alert if present. Returns True if an alert was dismissed."""
+        try:
+            alert = self.driver.switch_to.alert
+            text = alert.text
+            logger.warning(f"Dismissing browser alert: {text}")
+            alert.accept()
+            time.sleep(1)
+            return True
+        except NoAlertPresentException:
+            return False
+        except Exception as e:
+            logger.debug(f"Alert check failed: {e}")
+            return False
 
     def navigate_to_graph_page(self) -> bool:
         try:
@@ -40,6 +55,7 @@ class GraphExtractor:
             return False
 
     def input_target(self, target_id: str) -> bool:
+        self.dismiss_alert_if_present()
         try:
             wait = WebDriverWait(self.driver, 10)
             input_name = 'sid' if self.mode == 'sid' else 'graphtitle'
@@ -52,7 +68,15 @@ class GraphExtractor:
             btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a.btn-graph")))
             self.driver.execute_script("arguments[0].scrollIntoView(true);", btn)
             self.driver.execute_script("arguments[0].click();", btn)
+            time.sleep(2)
+            if not self.wait_for_detail_ready():
+                logger.error(f"Detail page did not become ready for target {target_id}")
+                return False
             return True
+        except UnexpectedAlertPresentException as e:
+            self.dismiss_alert_if_present()
+            logger.warning(f"input_target alert dismissed for {target_id}: {e}")
+            return False
         except Exception as e:
             logger.error(f"input_target error: {e}")
             return False
@@ -76,13 +100,27 @@ class GraphExtractor:
                     logger.error("Could not find date inputs for SID mode")
                     return False
             else:
-                self.driver.execute_script("document.getElementById('startdate').value = arguments[0]; document.getElementById('startdate').dispatchEvent(new Event('change'));", start_str)
-                self.driver.execute_script("document.getElementById('enddate').value = arguments[0]; document.getElementById('enddate').dispatchEvent(new Event('change'));", end_str)
-                btn = self.driver.find_element(By.ID, 'graphfilter')
+                start_input = wait.until(EC.presence_of_element_located((By.ID, "startdate")))
+                end_input = wait.until(EC.presence_of_element_located((By.ID, "enddate")))
+                btn = wait.until(EC.element_to_be_clickable((By.ID, "graphfilter")))
+            
+                self.driver.execute_script(
+                    "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
+                    start_input,
+                    start_str
+                )
+                self.driver.execute_script(
+                    "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
+                    end_input,
+                    end_str
+                )
                 self.driver.execute_script("arguments[0].click();", btn)
             return True
         except Exception as e:
-            logger.error(f"set_date_filter error: {e}")
+            logger.error(
+                f"set_date_filter error for mode={self.mode}: {e}; "
+                f"url={self.driver.current_url}; title={self.driver.title}"
+            )
             return False
 
     def wait_for_loading_overlay(self, timeout=10):
@@ -93,6 +131,47 @@ class GraphExtractor:
             )
         except Exception:
             pass
+
+    def mode_url(self) -> str:
+        if self.mode == 'sid':
+            return 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring'
+        return 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph'
+
+    def wait_for_detail_ready(self, timeout: int = 15) -> bool:
+        """Wait until target detail/filter controls are ready after Show Graph click."""
+        try:
+            wait = WebDriverWait(self.driver, timeout)
+            if self.mode == 'sid':
+                wait.until(EC.presence_of_element_located(
+                    (By.XPATH, "//button[contains(normalize-space(), 'Filter')]")
+                ))
+                return True
+
+            wait.until(EC.presence_of_element_located((By.ID, "startdate")))
+            wait.until(EC.presence_of_element_located((By.ID, "enddate")))
+            wait.until(EC.presence_of_element_located((By.ID, "graphfilter")))
+            return True
+        except Exception as e:
+            logger.error(
+                f"Detail page not ready for mode={self.mode}: {e}; "
+                f"url={self.driver.current_url}; title={self.driver.title}"
+            )
+            return False
+
+    def recover_graph_page(self) -> bool:
+        """Hard reset graph page and reopen the correct graph mode page."""
+        try:
+            self.dismiss_alert_if_present()
+            target_url = self.mode_url()
+            logger.warning(f"Recovering graph page with direct navigation: {target_url}")
+            self.driver.get(target_url)
+            time.sleep(5)
+            self.dismiss_alert_if_present()
+            self.wait_for_loading_overlay()
+            return True
+        except Exception as e:
+            logger.error(f"recover_graph_page error: {e}")
+            return False
 
     def wait_for_graph_render(self, timeout=15):
         for _ in range(timeout):
@@ -174,18 +253,54 @@ class GraphExtractor:
 
     def validate_image(self, filepath: Path) -> bool:
         try:
+            if not filepath.exists():
+                logger.error(f"Image {filepath} does not exist")
+                return False
+
+            if filepath.stat().st_size < 1000:
+                logger.error(f"Image {filepath} too small on disk: {filepath.stat().st_size} bytes")
+                return False
+
             with Image.open(filepath) as img:
                 w, h = img.size
                 if w < 100 or h < 100:
                     logger.error(f"Image {filepath} too small: {w}x{h}")
                     return False
-                ycbcr = img.convert('YCbCr')
-                extrema = ycbcr.getextrema()
-                if len(extrema) == 3:
-                    y, cb, cr = extrema
-                    if (cb[1] - cb[0]) < 15 and (cr[1] - cr[0]) < 15:
-                        logger.error(f"Image {filepath} lacks color variation (grayscale/blank)")
-                        return False
+
+                rgb = img.convert('RGB')
+                extrema = rgb.getextrema()
+                ranges = [hi - lo for lo, hi in extrema]
+
+                gray = img.convert('L')
+                gray_min, gray_max = gray.getextrema()
+                luminance_range = gray_max - gray_min
+
+                # Reject only near-solid placeholder/blank captures.
+                if luminance_range < 10 and all(r < 10 for r in ranges):
+                    logger.error(
+                        f"Image {filepath} appears blank/solid "
+                        f"(luminance_range={luminance_range}, rgb_ranges={ranges})"
+                    )
+                    return False
+
+                pixels_l = list(gray.getdata())
+                total = len(pixels_l)
+                white_ratio = sum(1 for p in pixels_l if p > 230) / total
+                dark_ratio = sum(1 for p in pixels_l if p < 100) / total
+
+                pixels_rgb = list(rgb.getdata())
+                colorful_ratio = (
+                    sum(1 for r, g, b in pixels_rgb if max(r, g, b) - min(r, g, b) > 30) / total
+                )
+
+                if colorful_ratio < 0.002 and dark_ratio < 0.12 and white_ratio > 0.70:
+                    logger.error(
+                        f"Image {filepath} appears to be a no-graph placeholder "
+                        f"(white_ratio={white_ratio:.3f}, dark_ratio={dark_ratio:.3f}, "
+                        f"colorful_ratio={colorful_ratio:.5f})"
+                    )
+                    return False
+
             return True
         except Exception as e:
             logger.error(f"validate_image error on {filepath}: {e}")
@@ -193,18 +308,25 @@ class GraphExtractor:
 
     def capture_graph(self, target_id: str, date_obj) -> 'Path | None':
         for attempt in range(1, 4):
+            self.dismiss_alert_if_present()
             img_el = None
             isolated = False
             try:
                 if attempt > 1:
-                    logger.warning(f"Retrying {target_id} after stale element (attempt {attempt}/3)")
+                    logger.warning(f"Retrying {target_id} (attempt {attempt}/3)")
                     time.sleep(2)
 
                 if not self.input_target(target_id):
+                    if attempt < 3:
+                        logger.warning(f"input_target failed for {target_id}, retrying attempt {attempt + 1}/3")
+                        continue
                     return None
                 time.sleep(2)
 
                 if not self.set_date_filter(date_obj):
+                    if attempt < 3:
+                        logger.warning(f"set_date_filter failed for {target_id}, retrying attempt {attempt + 1}/3")
+                        continue
                     return None
                 time.sleep(3)
 
@@ -213,6 +335,10 @@ class GraphExtractor:
                 img_el = self.wait_for_graph_render()
                 if not img_el:
                     logger.error(f"Graph did not render for {target_id}")
+                    if attempt < 3:
+                        self.recover_graph_page()
+                        time.sleep(2)
+                        continue
                     return None
 
                 self.isolate_image_for_capture(img_el)
@@ -232,12 +358,26 @@ class GraphExtractor:
                 if self.validate_image(temp_file):
                     temp_file.replace(final_file)
                     return final_file
-                else:
-                    temp_file.unlink(missing_ok=True)
-                    return None
+                
+                temp_file.unlink(missing_ok=True)
+                if attempt < 3:
+                    logger.warning(
+                        f"Invalid graph capture for {target_id}, recovering page and retrying "
+                        f"attempt {attempt + 1}/3"
+                    )
+                    self.recover_graph_page()
+                    time.sleep(2)
+                    continue
+
+                logger.error(f"Invalid graph capture for {target_id} after 3 attempts")
+                return None
 
             except StaleElementReferenceException as e:
                 logger.warning(f"Stale graph element for {target_id} on attempt {attempt}/3: {e}")
+                continue
+            except UnexpectedAlertPresentException as e:
+                self.dismiss_alert_if_present()
+                logger.warning(f"Unexpected alert during capture for {target_id} on attempt {attempt}/3: {e}")
                 continue
             except Exception as e:
                 logger.error(f"capture_graph error for {target_id}: {e}")

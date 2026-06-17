@@ -37,7 +37,7 @@ def main():
     config_path = Path("config/list_mrtg_data_img_only.txt")
     sid_targets, graphtitle_targets = parse_target_file(config_path)
     
-    test_date = datetime.date.today()
+    test_date = datetime.date(2026, 6, 21)
     all_targets = sid_targets + graphtitle_targets
     
     print(f"Parsed SID targets: {len(sid_targets)}")

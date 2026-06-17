@@ -9,7 +9,7 @@ def main():
     print("=" * 70)
     
     target = "3784"
-    test_date = datetime.date.today()
+    test_date = datetime.date(2026, 6, 21)
     
     scraper = TelkomCareScraper(headless=False)
     
