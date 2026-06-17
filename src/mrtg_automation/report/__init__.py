@@ -1,0 +1,3 @@
+"""
+Excel report generation module.
+"""

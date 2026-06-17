@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mrtg_automation"
+version = "0.1.0"
+description = "Automated scraping and reporting for TelkomCare MRTG."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "python-dotenv",
+    "openpyxl",
+    "selenium",
+    "webdriver-manager",
+    "Pillow"
+]
+
+[project.optional-dependencies]
+ocr = [
+    "paddlepaddle==3.2.0",
+    "paddleocr==3.5.0"
+]
+gui = [
+    "PySide6"
+]

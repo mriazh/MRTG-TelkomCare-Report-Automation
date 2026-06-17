@@ -1,0 +1,143 @@
+Service Id : 4700001-0020265222
+Inbound_Current: E14
+Inbound_Average: E15
+Inbound_Maximum: E16
+Outbound_Current: E17
+Outbound_Average: E18
+Outbound_Maximum: E19
+Image : B21-I35
+
+Service Id :  4700001-0021497479
+Inbound_Current: N14
+Inbound_Average: N15
+Inbound_Maximum: N16
+Outbound_Current: N17
+Outbound_Average: N18
+Outbound_Maximum: N19
+Image : K21-R35
+
+Service Id : 3784
+Inbound_Current: W14
+Inbound_Average: W15
+Inbound_Maximum: W16
+Outbound_Current: W17
+Outbound_Average: W18
+Outbound_Maximum: W19
+Image : T21-AA35
+
+Service Id : 3598
+Inbound_Current: AF14
+Inbound_Average: AF15
+Inbound_Maximum: AF16
+Outbound_Current: AF17
+Outbound_Average: AF18
+Outbound_Maximum: AF19
+Image : AC21-AJ35
+
+Service Id : 4700001-0014021720
+Inbound_Current: E47
+Inbound_Average: E48
+Inbound_Maximum: E49
+Outbound_Current: E50
+Outbound_Average: E51
+Outbound_Maximum: E52
+Image : B54-I68
+
+Service Id : 4703277-0030657827
+Inbound_Current: N47
+Inbound_Average: N48
+Inbound_Maximum: N49
+Outbound_Current: N50
+Outbound_Average: N51
+Outbound_Maximum: N52
+Image : K54-R68
+
+Service Id : 4703277-0029546698
+Inbound_Current: W47
+Inbound_Average: W48
+Inbound_Maximum: W49
+Outbound_Current: W50
+Outbound_Average: W51
+Outbound_Maximum: W52
+Image : T54-AA68
+
+Service Id : 4700001-0031020061
+Inbound_Current: AF47
+Inbound_Average: AF48
+Inbound_Maximum: AF49
+Outbound_Current: AF50
+Outbound_Average: AF51
+Outbound_Maximum: AF52
+Image : AC54-AJ68
+
+Service Id : 4700001-0022825214
+Inbound_Current: E81
+Inbound_Average: E82
+Inbound_Maximum: E83
+Outbound_Current: E84
+Outbound_Average: E85
+Outbound_Maximum: E86
+Image : B89-I103
+
+Service Id : 4700001-0029532119
+Inbound_Current: N81
+Inbound_Average: N82
+Inbound_Maximum: N83
+Outbound_Current: N84
+Outbound_Average: N85
+Outbound_Maximum: N86
+Image : K89-R103
+
+Service Id : 4700001-0029714768
+Inbound_Current: W81
+Inbound_Average: W82
+Inbound_Maximum: W83
+Outbound_Current: W84
+Outbound_Average: W85
+Outbound_Maximum: W86
+Image : T89-AA103
+
+Service Id : 4700001-0020695602
+Inbound_Current: AF81
+Inbound_Average: AF82
+Inbound_Maximum: AF83
+Outbound_Current: AF84
+Outbound_Average: AF85
+Outbound_Maximum: AF86
+Image : AC89-AJ103
+
+Service Id : 4700001-0020812371
+Inbound_Current: E116
+Inbound_Average: E117
+Inbound_Maximum: E118
+Outbound_Current: E119
+Outbound_Average: E120
+Outbound_Maximum: E121
+Image : B123-I137
+
+Service Id : 1708594345
+Inbound_Current: N116
+Inbound_Average: N117
+Inbound_Maximum: N118
+Outbound_Current: N119
+Outbound_Average: N120
+Outbound_Maximum: N121
+Image : K123-R137
+
+Service Id : 1714983154
+Inbound_Current: W116
+Inbound_Average: W117
+Inbound_Maximum: W118
+Outbound_Current: W119
+Outbound_Average: W120
+Outbound_Maximum: W121
+Image : T123-AA137
+
+Service Id : 4700001-0022216083
+Inbound_Current: AF116
+Inbound_Average: AF117
+Inbound_Maximum: AF118
+Outbound_Current: AF119
+Outbound_Average: AF120
+Outbound_Maximum: AF121
+Image : AC123-AJ137

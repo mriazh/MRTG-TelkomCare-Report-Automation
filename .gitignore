@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment
+.env
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv312/
+.venv*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Project output / data
+output/
+data/
+temp_screenshots/
+*.png
+*.xlsx
+
+# Config examples are kept, but local user edits ignored
+config/SID-MRTG.txt
+config/GRAPH-TITLE-MRTG.txt
+config/report-items.txt
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Build / Distribution
+dist/
+build/
+*.spec
+*.egg-info/
+src/*.egg-info/

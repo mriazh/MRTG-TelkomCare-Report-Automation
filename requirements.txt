@@ -1,0 +1,6 @@
+# Core dependencies
+python-dotenv
+openpyxl
+selenium
+webdriver-manager
+Pillow
