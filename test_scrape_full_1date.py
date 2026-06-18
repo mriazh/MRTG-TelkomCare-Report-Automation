@@ -76,6 +76,8 @@ def main():
             
         print("\n" + "-" * 70)
         passed = 0
+        na_count = 0
+        failed_count = 0
         failed_targets = []
         
         for target in all_targets:
@@ -89,19 +91,26 @@ def main():
                 else:
                     print(f"[FAIL] {target} (file empty or missing at {p})")
                     failed_targets.append(target)
+                    failed_count += 1
             else:
-                print(f"[FAIL] {target} (no filepath returned)")
-                failed_targets.append(target)
+                status_info = scraper.last_statuses.get((target, test_date), {})
+                if status_info.get("status") == "no_graph":
+                    print(f"[N/A] {target} (TelkomCare returned No graph)")
+                    na_count += 1
+                else:
+                    print(f"[FAIL] {target} (no filepath returned, status: {status_info.get('status')}, error: {status_info.get('error')})")
+                    failed_targets.append(target)
+                    failed_count += 1
                 
         print("-" * 70)
-        print(f"SUMMARY: {passed}/{len(all_targets)} passed")
+        print(f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {len(all_targets)} total")
         
         if failed_targets:
             print("Failed targets:")
             for t in failed_targets:
                 print(f"  - {t}")
                 
-        if passed == len(all_targets):
+        if failed_count == 0:
             return 0
         return 1
             

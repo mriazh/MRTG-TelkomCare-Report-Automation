@@ -18,6 +18,9 @@ class GraphExtractor:
     def __init__(self, driver, mode='sid'):
         self.driver = driver
         self.mode = mode.lower()
+        self.last_status = None
+        self.last_error = None
+        self.last_validation_error = None
 
     def dismiss_alert_if_present(self) -> bool:
         """Dismiss browser alert if present. Returns True if an alert was dismissed."""
@@ -252,18 +255,22 @@ class GraphExtractor:
         self.driver.execute_script(script, img_el)
 
     def validate_image(self, filepath: Path) -> bool:
+        self.last_validation_error = None
         try:
             if not filepath.exists():
+                self.last_validation_error = "invalid_image"
                 logger.error(f"Image {filepath} does not exist")
                 return False
 
             if filepath.stat().st_size < 1000:
+                self.last_validation_error = "invalid_image"
                 logger.error(f"Image {filepath} too small on disk: {filepath.stat().st_size} bytes")
                 return False
 
             with Image.open(filepath) as img:
                 w, h = img.size
                 if w < 100 or h < 100:
+                    self.last_validation_error = "invalid_image"
                     logger.error(f"Image {filepath} too small: {w}x{h}")
                     return False
 
@@ -277,6 +284,7 @@ class GraphExtractor:
 
                 # Reject only near-solid placeholder/blank captures.
                 if luminance_range < 10 and all(r < 10 for r in ranges):
+                    self.last_validation_error = "blank"
                     logger.error(
                         f"Image {filepath} appears blank/solid "
                         f"(luminance_range={luminance_range}, rgb_ranges={ranges})"
@@ -294,6 +302,7 @@ class GraphExtractor:
                 )
 
                 if colorful_ratio < 0.002 and dark_ratio < 0.12 and white_ratio > 0.70:
+                    self.last_validation_error = "no_graph"
                     logger.error(
                         f"Image {filepath} appears to be a no-graph placeholder "
                         f"(white_ratio={white_ratio:.3f}, dark_ratio={dark_ratio:.3f}, "
@@ -303,10 +312,13 @@ class GraphExtractor:
 
             return True
         except Exception as e:
+            self.last_validation_error = "invalid_image"
             logger.error(f"validate_image error on {filepath}: {e}")
             return False
 
     def capture_graph(self, target_id: str, date_obj) -> 'Path | None':
+        self.last_status = None
+        self.last_error = None
         for attempt in range(1, 4):
             self.dismiss_alert_if_present()
             img_el = None
@@ -320,6 +332,8 @@ class GraphExtractor:
                     if attempt < 3:
                         logger.warning(f"input_target failed for {target_id}, retrying attempt {attempt + 1}/3")
                         continue
+                    self.last_status = "error"
+                    self.last_error = "input_target failed"
                     return None
                 time.sleep(2)
 
@@ -327,6 +341,8 @@ class GraphExtractor:
                     if attempt < 3:
                         logger.warning(f"set_date_filter failed for {target_id}, retrying attempt {attempt + 1}/3")
                         continue
+                    self.last_status = "error"
+                    self.last_error = "set_date_filter failed"
                     return None
                 time.sleep(3)
 
@@ -339,6 +355,8 @@ class GraphExtractor:
                         self.recover_graph_page()
                         time.sleep(2)
                         continue
+                    self.last_status = "error"
+                    self.last_error = "Graph did not render"
                     return None
 
                 self.isolate_image_for_capture(img_el)
@@ -357,6 +375,8 @@ class GraphExtractor:
 
                 if self.validate_image(temp_file):
                     temp_file.replace(final_file)
+                    self.last_status = "ok"
+                    self.last_error = None
                     return final_file
                 
                 temp_file.unlink(missing_ok=True)
@@ -368,6 +388,13 @@ class GraphExtractor:
                     self.recover_graph_page()
                     time.sleep(2)
                     continue
+
+                if self.last_validation_error == "no_graph":
+                    self.last_status = "no_graph"
+                    self.last_error = "TelkomCare returned No graph"
+                else:
+                    self.last_status = "error"
+                    self.last_error = f"Invalid graph capture after 3 attempts ({self.last_validation_error})"
 
                 logger.error(f"Invalid graph capture for {target_id} after 3 attempts")
                 return None
@@ -381,6 +408,8 @@ class GraphExtractor:
                 continue
             except Exception as e:
                 logger.error(f"capture_graph error for {target_id}: {e}")
+                self.last_status = "error"
+                self.last_error = f"capture_graph exception: {e}"
                 return None
             finally:
                 if isolated and img_el is not None:
@@ -389,5 +418,7 @@ class GraphExtractor:
                     except Exception as e:
                         logger.debug(f"restore after capture failed for {target_id}: {e}")
 
+        self.last_status = "error"
+        self.last_error = "Capture failed after 3 stale retries"
         logger.error(f"capture_graph failed for {target_id} after 3 stale retries")
         return None

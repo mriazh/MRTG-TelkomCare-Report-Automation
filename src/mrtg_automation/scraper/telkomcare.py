@@ -30,12 +30,14 @@ class TelkomCareScraper:
     def __init__(self, config=None, profile_dir: str = None, headless: bool = True, 
                  base_url: str = 'http://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring'):
         self.config = config
+        self.base_url = base_url
+        self.headless = headless
         self.session = SessionManager(
             profile_dir=profile_dir,
             headless=headless,
             base_url=base_url
         )
-        self.base_url = base_url
+        self.last_statuses = {}
         self._logged_in = False
     
     def login(self) -> bool:
@@ -107,9 +109,19 @@ class TelkomCareScraper:
             
             for target in targets:
                 try:
+                    logger.info(f"Capturing graph for {target} on {date_obj.strftime('%Y-%m-%d')} ({mode} mode)")
                     filepath = extractor.capture_graph(target, date_obj)
-                    logger.info(f"  [{date_str}] {target}: {'OK' if filepath else 'FAIL'}")
-                    results.setdefault(target, {})[date_obj] = filepath
+                    
+                    self.last_statuses[(target, date_obj)] = {
+                        "status": getattr(extractor, 'last_status', None) or ("ok" if filepath else "error"),
+                        "error": getattr(extractor, 'last_error', None),
+                    }
+                    
+                    if filepath:
+                        logger.info(f"Graph saved to {filepath}")
+                        if target not in results:
+                            results[target] = {}
+                        results[target][date_obj] = str(filepath)
                     status = "OK" if filepath else "FAIL"
                     if progress_callback:
                         progress_callback(target, date_obj, filepath is not None)

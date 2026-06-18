@@ -37,8 +37,13 @@ def main():
                 print(f"[FAIL] Could not save graph (file empty or missing at {p})")
                 return 1
         else:
-            print("[FAIL] Could not save graph (no filepath returned)")
-            return 1
+            status_info = scraper.last_statuses.get((target, test_date), {})
+            if status_info.get("status") == "no_graph":
+                print(f"[N/A] {target} (TelkomCare returned No graph)")
+                return 0
+            else:
+                print(f"[FAIL] Could not save graph (status: {status_info.get('status')}, error: {status_info.get('error')})")
+                return 1
             
     finally:
         scraper.close()
