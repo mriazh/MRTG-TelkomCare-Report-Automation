@@ -9,7 +9,7 @@ g = ExcelReportGenerator(Config())
 template = TEMPLATES_DIR / 'MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx'
 output = REPORTS_DIR / 'MRTG-Monthly-Report-ocr-alldates.xlsx'  # Different output filename!
 mapping = CONFIG_DIR / 'list_mrtg_data_position.txt'
-target_list = CONFIG_DIR / 'list_mrtg_data.txt'
+target_list = CONFIG_DIR / 'list_mrtg_targets.csv'
 
 summary = g.generate(
     'OCR_IMAGE',

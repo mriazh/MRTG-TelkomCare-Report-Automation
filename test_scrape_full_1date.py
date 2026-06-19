@@ -1,6 +1,7 @@
 import sys
 import datetime
 import re
+import csv
 from pathlib import Path
 from mrtg_automation.scraper.telkomcare import TelkomCareScraper
 
@@ -12,21 +13,18 @@ def parse_target_file(path: Path):
         print(f"[ERROR] Config file not found: {path}")
         return sid_targets, graphtitle_targets
         
-    with open(path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line or ':' not in line:
-                continue
-                
-            parts = line.split(':', 1)
-            label = parts[0].strip().lower()
-            target_id = parts[1].strip()
-            
-            if 'sid' in label:
-                sid_targets.append(target_id)
-            elif 'graph-title' in label or 'graphtitle' in label:
-                graphtitle_targets.append(target_id)
-                
+    truthy = {"true", "1", "yes", "y"}
+    with open(path, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("image_enabled", "").strip().lower() in truthy:
+                target_type = row.get("type", "").strip().lower()
+                target_id = row.get("target", "").strip()
+                if 'sid' in target_type:
+                    sid_targets.append(target_id)
+                elif 'graph-title' in target_type or 'graphtitle' in target_type:
+                    graphtitle_targets.append(target_id)
+                    
     return sid_targets, graphtitle_targets
 
 def main():
@@ -34,7 +32,7 @@ def main():
     print("TEST: Full 20-Target 1-Date Scrape")
     print("=" * 70)
     
-    config_path = Path("config/list_mrtg_data_img_only.txt")
+    config_path = Path("config/list_mrtg_targets.csv")
     sid_targets, graphtitle_targets = parse_target_file(config_path)
     
     test_date = datetime.date(2026, 6, 21)

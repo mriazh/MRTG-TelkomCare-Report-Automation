@@ -1,4 +1,5 @@
 import re
+import csv
 import logging
 from pathlib import Path
 from openpyxl.utils import column_index_from_string
@@ -63,45 +64,45 @@ def parse_image_only_mapping(filepath: Path) -> dict:
             
     return mapping
 
-def parse_target_list(filepath: Path) -> list:
-    """
-    Parse the target list.
-    Legacy format example:
-        1. SID : 4700001-0021497479
-        13. Graph-title : 3598
-        
-    Returns: List of tuples (number, target_type, target_id)
-    """
+def parse_target_list(filepath: Path, enabled_for: str = None) -> list:
+    """Parse target list (csv or txt) to return [(number, target_type, target_id)]"""
     items = []
     if not filepath.exists():
-        logger.error(f"Target list file not found: {filepath}")
+        logger.error(f"Target list not found: {filepath}")
         return items
-
-    with open(filepath, 'r', encoding='utf-8') as f:
+        
+    if filepath.suffix.lower() == ".csv":
+        truthy = {"true", "1", "yes", "y"}
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for i, row in enumerate(reader, start=1):
+                if enabled_for == "ocr":
+                    if row.get("ocr_enabled", "").strip().lower() not in truthy:
+                        continue
+                elif enabled_for == "image":
+                    if row.get("image_enabled", "").strip().lower() not in truthy:
+                        continue
+                        
+                items.append((
+                    str(i),
+                    row.get("type", "").strip(),
+                    row.get("target", "").strip()
+                ))
+        return items
+        
+    with open(filepath, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
                 
-            parts = line.split('.', 1)
-            if len(parts) != 2:
-                continue
-                
-            nomor = parts[0].strip()
-            rest = parts[1].strip()
-            
-            if rest.startswith('SID :'):
-                tipe = 'SID'
-                id_val = rest.replace('SID :', '').strip()
-            elif rest.startswith('Graph-title :'):
-                tipe = 'Graph-title'
-                id_val = rest.replace('Graph-title :', '').strip()
-            else:
-                continue
-                
-            id_clean = RE_STRIP_NUMBERING.sub('', id_val)
-            items.append((nomor, tipe, id_clean))
-            
+            match = re.match(r'(\d+)\.\s*([^:]+)\s*:\s*(\S+)', line)
+            if match:
+                items.append((
+                    match.group(1),
+                    match.group(2).strip(),
+                    match.group(3)
+                ))
     return items
 
 def parse_ocr_mapping(filepath: Path) -> dict:

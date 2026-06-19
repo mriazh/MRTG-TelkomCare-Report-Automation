@@ -77,7 +77,8 @@ class ExcelReportGenerator:
             logger.error("Mapping is empty. Aborting.")
             return summary
 
-        items = parse_target_list(list_file)
+        target_filter = "image" if report_mode == "IMAGE_ONLY" else "ocr"
+        items = parse_target_list(list_file, enabled_for=target_filter)
         if not items:
             logger.error("Target list is empty. Aborting.")
             return summary

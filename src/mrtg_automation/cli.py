@@ -54,7 +54,7 @@ def run_cli():
                     continue
                 
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position.txt"
-                list_file = CONFIG_DIR / "list_mrtg_data.txt"
+                list_file = CONFIG_DIR / "list_mrtg_targets.csv"
                 
                 template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
                 legacy_template = TEMPLATES_DIR / "MRTG-Monthly-Report.xlsx"
@@ -111,7 +111,7 @@ def run_cli():
                 
                 # Hardcoded defaults for Milestone 2 testing
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
-                list_file = CONFIG_DIR / "list_mrtg_data_img_only.txt"
+                list_file = CONFIG_DIR / "list_mrtg_targets.csv"
                 
                 template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-image-only.xlsx"
                 legacy_template = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"

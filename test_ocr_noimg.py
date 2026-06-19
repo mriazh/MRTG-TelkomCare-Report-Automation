@@ -16,11 +16,10 @@ g = ExcelReportGenerator(Config())
 template = TEMPLATES_DIR / 'MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx'
 output = REPORTS_DIR / 'MRTG-Monthly-Report-ocr-noimg.xlsx'
 mapping = CONFIG_DIR / 'list_mrtg_data_position.txt'
-target_list = CONFIG_DIR / 'list_mrtg_data.txt'
+target_list = CONFIG_DIR / 'list_mrtg_targets.csv'
 
 start = time.time()
-summary = g.generate('OCR_IMAGE', DATA_DIR, template, output, mapping, target_list, '20260401')
-end = time.time()
+summary = g.generate('OCR_IMAGE', DATA_DIR, template, output, mapping, target_list, '20260621')
+duration = time.time() - start
 
-print(f"C DONE: OK={summary['ocr_ok']}, FAIL={summary['ocr_fail']}, IMAGES_INSERTED={summary['image_inserted']}")
-print(f"TIME: {end - start:.2f}s")
+print(f"C DONE: DATES={summary['dates_processed']}, TARGETS={summary['targets']}, EXPECTED={summary['expected']}, OK={summary['ocr_ok']}, FAIL={summary['ocr_fail']}, IMAGES_INSERTED={summary['image_inserted']}, MISSING_SCREENSHOTS={summary['missing_screenshots']}, MISSING_MAPPINGS={summary['missing_mappings']} in {duration:.2f}s")
