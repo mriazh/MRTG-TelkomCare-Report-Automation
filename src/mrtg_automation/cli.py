@@ -381,3 +381,42 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False)
     else:
         print("\n[FAIL] Failed to generate report.")
         return 1
+
+def run_full_command(
+    date_str: str,
+    targets_filter: str = "image",
+    report_mode: str = "image",
+    headless: bool = False,
+    no_images: bool = False,
+) -> int:
+    if len(date_str) != 8 or not date_str.isdigit():
+        print("[FAIL] Date format must be YYYYMMDD")
+        return 1
+        
+    if targets_filter not in ["image", "ocr", "all"]:
+        print("[FAIL] --targets must be one of: image, ocr, all")
+        return 1
+        
+    if report_mode not in ["image", "ocr"]:
+        print("[FAIL] --report-mode must be one of: image, ocr")
+        return 1
+        
+    print("=" * 70)
+    print("COMMAND: Full Pipeline")
+    print(f"Date: {date_str}")
+    print(f"Target filter: {targets_filter}")
+    print(f"Report mode: {report_mode}")
+    print("=" * 70)
+    
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless)
+    if scrape_exit_code != 0:
+        print("\n[FAIL] Scrape step failed. Report step skipped.")
+        return scrape_exit_code
+        
+    report_exit_code = run_report_command(report_mode, date_str, no_images)
+    if report_exit_code != 0:
+        print("\n[FAIL] Report step failed.")
+        return report_exit_code
+        
+    print("\n[OK] Full pipeline completed successfully.")
+    return 0

@@ -20,6 +20,13 @@ def main():
     report_parser.add_argument("--date", help="Date to process, YYYYMMDD (optional, processes all if omitted)")
     report_parser.add_argument("--no-images", action="store_true", help="Disable inserting images into Excel")
     
+    full_parser = subparsers.add_parser("full", help="Scrape screenshots and generate report")
+    full_parser.add_argument("--date", required=True, help="Date to process, YYYYMMDD")
+    full_parser.add_argument("--targets", choices=["image", "ocr", "all"], default="image")
+    full_parser.add_argument("--report-mode", choices=["image", "ocr"], default="image")
+    full_parser.add_argument("--headless", action="store_true", help="Run Chrome headless")
+    full_parser.add_argument("--no-images", action="store_true", help="Disable inserting images into Excel")
+    
     args = parser.parse_args()
     
     if getattr(args, 'no_images', False):
@@ -30,6 +37,16 @@ def main():
         sys.exit(exit_code)
     elif args.command == "report":
         exit_code = run_report_command(args.mode, args.date, getattr(args, 'no_images', False))
+        sys.exit(exit_code)
+    elif args.command == "full":
+        from .cli import run_full_command
+        exit_code = run_full_command(
+            date_str=args.date,
+            targets_filter=args.targets,
+            report_mode=args.report_mode,
+            headless=args.headless,
+            no_images=getattr(args, "no_images", False),
+        )
         sys.exit(exit_code)
         
     try:
