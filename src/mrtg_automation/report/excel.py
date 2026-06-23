@@ -86,10 +86,15 @@ class ExcelReportGenerator:
         summary["targets"] = len(items)
         logger.info(f"Loaded {len(mapping)} mappings and {len(items)} target items.")
 
-        tanggal_list = self._get_tanggal_folders(data_dir)
+        tanggal_list = [d.name for d in data_dir.iterdir() if d.is_dir() and d.name.isdigit()]
         if date_filter:
-            tanggal_list = [t for t in tanggal_list if t == date_filter]
-            
+            if isinstance(date_filter, str):
+                tanggal_list = [t for t in tanggal_list if t == date_filter]
+            else:
+                allowed = set(date_filter)
+                tanggal_list = [t for t in tanggal_list if t in allowed]
+        
+        tanggal_list.sort()
         if not tanggal_list:
             logger.error(f"No valid YYYYMMDD folders found in {data_dir} matching filter.")
             return summary

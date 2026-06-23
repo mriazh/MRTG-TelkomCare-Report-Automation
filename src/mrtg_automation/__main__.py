@@ -11,17 +11,23 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
     
     scrape_parser = subparsers.add_parser("scrape", help="Scrape MRTG screenshots only")
-    scrape_parser.add_argument("--date", required=True, help="Date to scrape, YYYYMMDD")
+    scrape_parser.add_argument("--date", help="Date to scrape, YYYYMMDD")
+    scrape_parser.add_argument("--start-date", help="Start date to scrape, YYYYMMDD")
+    scrape_parser.add_argument("--end-date", help="End date to scrape, YYYYMMDD")
     scrape_parser.add_argument("--targets", choices=["image", "ocr", "all"], default="image", help="Target filter")
     scrape_parser.add_argument("--headless", action="store_true", help="Run Chrome headless")
     
     report_parser = subparsers.add_parser("report", help="Generate Excel report only")
     report_parser.add_argument("--mode", choices=["image", "ocr"], required=True, help="Report mode")
     report_parser.add_argument("--date", help="Date to process, YYYYMMDD (optional, processes all if omitted)")
+    report_parser.add_argument("--start-date", help="Start date to process, YYYYMMDD")
+    report_parser.add_argument("--end-date", help="End date to process, YYYYMMDD")
     report_parser.add_argument("--no-images", action="store_true", help="Disable inserting images into Excel")
     
     full_parser = subparsers.add_parser("full", help="Scrape screenshots and generate report")
-    full_parser.add_argument("--date", required=True, help="Date to process, YYYYMMDD")
+    full_parser.add_argument("--date", help="Date to process, YYYYMMDD")
+    full_parser.add_argument("--start-date", help="Start date to process, YYYYMMDD")
+    full_parser.add_argument("--end-date", help="End date to process, YYYYMMDD")
     full_parser.add_argument("--targets", choices=["image", "ocr", "all"], default="image")
     full_parser.add_argument("--report-mode", choices=["image", "ocr"], default="image")
     full_parser.add_argument("--headless", action="store_true", help="Run Chrome headless")
@@ -33,10 +39,10 @@ def main():
         os.environ["INSERT_IMAGES"] = "False"
         
     if args.command == "scrape":
-        exit_code = run_scrape_command(args.date, args.targets, args.headless)
+        exit_code = run_scrape_command(args.date, args.targets, args.headless, getattr(args, 'start_date', None), getattr(args, 'end_date', None))
         sys.exit(exit_code)
     elif args.command == "report":
-        exit_code = run_report_command(args.mode, args.date, getattr(args, 'no_images', False))
+        exit_code = run_report_command(args.mode, args.date, getattr(args, 'no_images', False), getattr(args, 'start_date', None), getattr(args, 'end_date', None))
         sys.exit(exit_code)
     elif args.command == "full":
         from .cli import run_full_command
@@ -46,6 +52,8 @@ def main():
             report_mode=args.report_mode,
             headless=args.headless,
             no_images=getattr(args, "no_images", False),
+            start_date_str=getattr(args, 'start_date', None),
+            end_date_str=getattr(args, 'end_date', None)
         )
         sys.exit(exit_code)
         

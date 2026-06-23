@@ -75,7 +75,8 @@ def parse_target_list(filepath: Path, enabled_for: str = None) -> list:
         truthy = {"true", "1", "yes", "y"}
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
-            for i, row in enumerate(reader, start=1):
+            display_idx = 1
+            for row in reader:
                 if enabled_for == "ocr":
                     if row.get("ocr_enabled", "").strip().lower() not in truthy:
                         continue
@@ -84,10 +85,11 @@ def parse_target_list(filepath: Path, enabled_for: str = None) -> list:
                         continue
                         
                 items.append((
-                    str(i),
+                    str(display_idx),
                     row.get("type", "").strip(),
                     row.get("target", "").strip()
                 ))
+                display_idx += 1
         return items
         
     with open(filepath, 'r') as f:

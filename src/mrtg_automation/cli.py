@@ -184,14 +184,39 @@ def run_cli():
 import datetime
 from pathlib import Path
 
-def run_scrape_command(date_str: str, targets_filter: str = "image", headless: bool = False) -> int:
+def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> list:
+    if date_str:
+        if len(date_str) != 8 or not date_str.isdigit():
+            print(f"[FAIL] Invalid date format. Must be YYYYMMDD, got {date_str}")
+            return []
+        try:
+            return [datetime.datetime.strptime(date_str, "%Y%m%d").date()]
+        except ValueError:
+            print(f"[FAIL] Invalid date {date_str}")
+            return []
+            
+    if start_date_str and end_date_str:
+        if len(start_date_str) != 8 or not start_date_str.isdigit() or len(end_date_str) != 8 or not end_date_str.isdigit():
+            print("[FAIL] Date format must be YYYYMMDD")
+            return []
+        try:
+            from .shared.dates import generate_date_range
+            start_date = datetime.datetime.strptime(start_date_str, "%Y%m%d").date()
+            end_date = datetime.datetime.strptime(end_date_str, "%Y%m%d").date()
+            return generate_date_range(start_date, end_date)
+        except ValueError as e:
+            print(f"[FAIL] Invalid date range: {e}")
+            return []
+            
+    print("[FAIL] You must provide either --date OR both --start-date and --end-date")
+    return []
+
+def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None) -> int:
     """
-    Run scrape-only command for one date.
+    Run scrape-only command for one or more dates.
     """
-    try:
-        date_obj = datetime.datetime.strptime(date_str, "%Y%m%d").date()
-    except ValueError:
-        print("[FAIL] Invalid date format. Must be YYYYMMDD")
+    dates = parse_cli_dates(date_str, start_date_str, end_date_str)
+    if not dates:
         return 1
 
     ensure_directories()
@@ -226,7 +251,11 @@ def run_scrape_command(date_str: str, targets_filter: str = "image", headless: b
 
     print("=" * 70)
     print("COMMAND: Scrape")
-    print(f"Date: {date_str}")
+    print(f"Date count: {len(dates)}")
+    if len(dates) == 1:
+        print(f"Date: {dates[0].strftime('%Y%m%d')}")
+    else:
+        print(f"Date range: {dates[0].strftime('%Y%m%d')} to {dates[-1].strftime('%Y%m%d')}")
     print(f"Target filter: {targets_filter}")
     print(f"SID count: {len(sid_targets)}")
     print(f"Graph-title count: {len(graphtitle_targets)}")
@@ -249,14 +278,14 @@ def run_scrape_command(date_str: str, targets_filter: str = "image", headless: b
         results_all = {}
 
         if sid_targets:
-            print(f"\nScraping {len(sid_targets)} SID targets...")
-            results_sid = scraper.scrape(targets=sid_targets, dates=[date_obj], mode="sid")
+            print(f"\nScraping {len(sid_targets)} SID targets across {len(dates)} dates...")
+            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid")
             if results_sid:
                 results_all.update(results_sid)
 
         if graphtitle_targets:
-            print(f"\nScraping {len(graphtitle_targets)} Graph-title targets...")
-            results_gt = scraper.scrape(targets=graphtitle_targets, dates=[date_obj], mode="graphtitle")
+            print(f"\nScraping {len(graphtitle_targets)} Graph-title targets across {len(dates)} dates...")
+            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle")
             if results_gt:
                 results_all.update(results_gt)
 
@@ -265,28 +294,30 @@ def run_scrape_command(date_str: str, targets_filter: str = "image", headless: b
         na_count = 0
         failed_count = 0
 
-        for _, _, target in items:
-            filepath = results_all.get(target, {}).get(date_obj)
-            status_info = scraper.last_statuses.get((target, date_obj), {})
+        for date_obj in dates:
+            for _, _, target in items:
+                filepath = results_all.get(target, {}).get(date_obj)
+                status_info = scraper.last_statuses.get((target, date_obj), {})
 
-            if filepath:
-                p = Path(filepath)
-                if p.exists() and p.stat().st_size > 0:
-                    print(f"[OK] {target} -> {p}")
-                    passed += 1
+                if filepath:
+                    p = Path(filepath)
+                    if p.exists() and p.stat().st_size > 0:
+                        print(f"[OK] {target} ({date_obj.strftime('%Y%m%d')}) -> {p}")
+                        passed += 1
+                    else:
+                        print(f"[FAIL] {target} ({date_obj.strftime('%Y%m%d')}) (file empty or missing at {p})")
+                        failed_count += 1
+                elif status_info.get("status") == "no_graph":
+                    print(f"[N/A] {target} ({date_obj.strftime('%Y%m%d')}) (TelkomCare returned No graph)")
+                    na_count += 1
                 else:
-                    print(f"[FAIL] {target} (file empty or missing at {p})")
+                    err_msg = status_info.get('error') or "no filepath returned"
+                    print(f"[FAIL] {target} ({date_obj.strftime('%Y%m%d')}) (status: {status_info.get('status')}, error: {err_msg})")
                     failed_count += 1
-            elif status_info.get("status") == "no_graph":
-                print(f"[N/A] {target} (TelkomCare returned No graph)")
-                na_count += 1
-            else:
-                err_msg = status_info.get('error') or "no filepath returned"
-                print(f"[FAIL] {target} (status: {status_info.get('status')}, error: {err_msg})")
-                failed_count += 1
 
         print("-" * 70)
-        print(f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {len(items)} total")
+        total_expected = len(items) * len(dates)
+        print(f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {total_expected} total")
 
         if failed_count == 0:
             return 0
@@ -296,14 +327,18 @@ def run_scrape_command(date_str: str, targets_filter: str = "image", headless: b
 
 import os
 
-def run_report_command(mode: str, date_str: str = None, no_images: bool = False) -> int:
+def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None) -> int:
     ensure_directories()
     setup_logging()
 
-    if date_str:
-        if len(date_str) != 8 or not date_str.isdigit():
-            print("[FAIL] Date format must be YYYYMMDD")
+    if date_str or (start_date_str and end_date_str):
+        dates = parse_cli_dates(date_str, start_date_str, end_date_str)
+        if not dates:
             return 1
+        date_filter = date_str if len(dates) == 1 else [d.strftime("%Y%m%d") for d in dates]
+    else:
+        dates = []
+        date_filter = None
 
     if no_images:
         os.environ["INSERT_IMAGES"] = "False"
@@ -343,8 +378,12 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False)
     print(f"Target List: {list_file}")
     print(f"Data Dir: {DATA_DIR}")
     print(f"Output: {output_file}")
-    if date_str:
-        print(f"Date filter: {date_str}")
+    if dates:
+        print(f"Date count: {len(dates)}")
+        if len(dates) == 1:
+            print(f"Date filter: {dates[0].strftime('%Y%m%d')}")
+        else:
+            print(f"Date range: {dates[0].strftime('%Y%m%d')} to {dates[-1].strftime('%Y%m%d')}")
     if no_images:
         print("Images disabled via --no-images")
     print("=" * 70)
@@ -358,7 +397,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False)
         output_path=output_file,
         mapping_file=mapping_file,
         list_file=list_file,
-        date_filter=date_str
+        date_filter=date_filter
     )
 
     print("\nReport Summary:")
@@ -383,14 +422,16 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False)
         return 1
 
 def run_full_command(
-    date_str: str,
+    date_str: str = None,
     targets_filter: str = "image",
     report_mode: str = "image",
     headless: bool = False,
     no_images: bool = False,
+    start_date_str: str = None,
+    end_date_str: str = None,
 ) -> int:
-    if len(date_str) != 8 or not date_str.isdigit():
-        print("[FAIL] Date format must be YYYYMMDD")
+    dates = parse_cli_dates(date_str, start_date_str, end_date_str)
+    if not dates:
         return 1
         
     if targets_filter not in ["image", "ocr", "all"]:
@@ -403,17 +444,21 @@ def run_full_command(
         
     print("=" * 70)
     print("COMMAND: Full Pipeline")
-    print(f"Date: {date_str}")
+    print(f"Date count: {len(dates)}")
+    if len(dates) == 1:
+        print(f"Date: {dates[0].strftime('%Y%m%d')}")
+    else:
+        print(f"Date range: {dates[0].strftime('%Y%m%d')} to {dates[-1].strftime('%Y%m%d')}")
     print(f"Target filter: {targets_filter}")
     print(f"Report mode: {report_mode}")
     print("=" * 70)
     
-    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless)
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str)
     if scrape_exit_code != 0:
         print("\n[FAIL] Scrape step failed. Report step skipped.")
         return scrape_exit_code
         
-    report_exit_code = run_report_command(report_mode, date_str, no_images)
+    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str)
     if report_exit_code != 0:
         print("\n[FAIL] Report step failed.")
         return report_exit_code
