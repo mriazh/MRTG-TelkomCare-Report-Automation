@@ -33,6 +33,8 @@ def main():
     full_parser.add_argument("--headless", action="store_true", help="Run Chrome headless")
     full_parser.add_argument("--no-images", action="store_true", help="Disable inserting images into Excel")
     
+    gui_parser = subparsers.add_parser("gui", help="Launch Graphical User Interface")
+    
     args = parser.parse_args()
     
     if getattr(args, 'no_images', False):
@@ -56,6 +58,10 @@ def main():
             end_date_str=getattr(args, 'end_date', None)
         )
         sys.exit(exit_code)
+    elif args.command == "gui":
+        from .gui.app import main as gui_main
+        gui_main()
+        sys.exit(0)
         
     try:
         run_cli()

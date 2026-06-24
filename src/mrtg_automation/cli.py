@@ -1,7 +1,15 @@
 import sys
+import logging
 from .shared.paths import ensure_directories
 from .shared.logging import setup_logging
 from .shared.validators import Validator
+
+def log_run_boundary(label: str, message: str):
+    logger = logging.getLogger("mrtg_automation.cli")
+    line = "=" * 70
+    logger.info(line)
+    logger.info(f"{label}: {message}")
+    logger.info(line)
 
 def print_menu():
     print("=" * 50)
@@ -211,7 +219,7 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
     print("[FAIL] You must provide either --date OR both --start-date and --end-date")
     return []
 
-def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None) -> int:
+def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None) -> int:
     """
     Run scrape-only command for one or more dates.
     """
@@ -221,6 +229,8 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
     ensure_directories()
     setup_logging()
+    
+    log_run_boundary("RUN START", f"scrape dates={len(dates)} targets={targets_filter}")
 
     from .shared.paths import CONFIG_DIR
     from .report.mapping import parse_target_list
@@ -235,6 +245,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         items = parse_target_list(target_file, enabled_for=None)
     else:
         print("[FAIL] --targets must be one of: image, ocr, all")
+        log_run_boundary("RUN END", "scrape exit_code=1 invalid targets_filter")
         return 1
 
     sid_targets = []
@@ -264,15 +275,17 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
     if not items:
         print("[FAIL] No targets selected")
+        log_run_boundary("RUN END", "scrape exit_code=1 no targets selected")
         return 1
 
     from .scraper.telkomcare import TelkomCareScraper
-    scraper = TelkomCareScraper(headless=headless)
+    scraper = TelkomCareScraper(headless=headless, manual_login_waiter=manual_login_waiter)
 
     try:
         print("Logging in...")
         if not scraper.login():
             print("[FAIL] Login failed")
+            log_run_boundary("RUN END", "scrape exit_code=1 login failed")
             return 1
 
         results_all = {}
@@ -320,7 +333,9 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         print(f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {total_expected} total")
 
         if failed_count == 0:
+            log_run_boundary("RUN END", f"scrape exit_code=0 ok={passed} na={na_count} fail={failed_count}")
             return 0
+        log_run_boundary("RUN END", f"scrape exit_code=1 ok={passed} na={na_count} fail={failed_count}")
         return 1
     finally:
         scraper.close()
@@ -369,6 +384,8 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
 
     if not template_file.exists() and fallback_template.exists():
         template_file = fallback_template
+        
+    log_run_boundary("RUN START", f"report mode={mode} date_filter={date_filter}")
 
     print("=" * 70)
     print("COMMAND: Report")
@@ -416,9 +433,11 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
 
     if summary.get("success"):
         print("\n[OK] Report generated successfully.")
+        log_run_boundary("RUN END", "report exit_code=0 success=True")
         return 0
     else:
         print("\n[FAIL] Failed to generate report.")
+        log_run_boundary("RUN END", "report exit_code=1 success=False")
         return 1
 
 def run_full_command(
@@ -429,7 +448,11 @@ def run_full_command(
     no_images: bool = False,
     start_date_str: str = None,
     end_date_str: str = None,
+    manual_login_waiter=None
 ) -> int:
+    ensure_directories()
+    setup_logging()
+    
     dates = parse_cli_dates(date_str, start_date_str, end_date_str)
     if not dates:
         return 1
@@ -453,15 +476,20 @@ def run_full_command(
     print(f"Report mode: {report_mode}")
     print("=" * 70)
     
-    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str)
+    log_run_boundary("RUN START", f"full targets={targets_filter} report_mode={report_mode}")
+    
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, manual_login_waiter)
     if scrape_exit_code != 0:
         print("\n[FAIL] Scrape step failed. Report step skipped.")
+        log_run_boundary("RUN END", f"full exit_code={scrape_exit_code} (scrape failed)")
         return scrape_exit_code
         
     report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str)
     if report_exit_code != 0:
         print("\n[FAIL] Report step failed.")
+        log_run_boundary("RUN END", f"full exit_code={report_exit_code} (report failed)")
         return report_exit_code
         
     print("\n[OK] Full pipeline completed successfully.")
+    log_run_boundary("RUN END", "full exit_code=0")
     return 0

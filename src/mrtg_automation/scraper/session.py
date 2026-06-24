@@ -30,11 +30,12 @@ class SessionManager:
               to non-headless if user needs to solve captcha + MFA.
     """
     
-    def __init__(self, profile_dir: str = None, headless: bool = True, base_url: str = 'http://telkomcare.telkom.co.id'):
+    def __init__(self, profile_dir: str = None, headless: bool = True, base_url: str = 'http://telkomcare.telkom.co.id', manual_login_waiter=None):
         self.profile_dir = Path(profile_dir) if profile_dir else Path.home() / '.mrtg-scraper-profile'
         self.headless = headless
         self.base_url = base_url
         self.driver = None
+        self.manual_login_waiter = manual_login_waiter
     
     def _build_options(self) -> Options:
         opts = Options()
@@ -191,7 +192,10 @@ class SessionManager:
             print("7. Wait until you see the MRTG dashboard")
             print("8. Come back here and press Enter to continue")
             print("=" * 70)
-            input("\nPress Enter after login is complete and dashboard is visible...")
+            if self.manual_login_waiter is not None:
+                self.manual_login_waiter()
+            else:
+                input("\nPress Enter after login is complete and dashboard is visible...")
             logger.info("User completed manual login")
         finally:
             # Keep headless=False until next start() call, but allow

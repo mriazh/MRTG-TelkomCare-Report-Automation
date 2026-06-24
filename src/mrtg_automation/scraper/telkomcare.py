@@ -28,14 +28,15 @@ class TelkomCareScraper:
     """
     
     def __init__(self, config=None, profile_dir: str = None, headless: bool = True, 
-                 base_url: str = 'http://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring'):
+                 base_url: str = 'http://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', manual_login_waiter=None):
         self.config = config
         self.base_url = base_url
         self.headless = headless
         self.session = SessionManager(
             profile_dir=profile_dir,
             headless=headless,
-            base_url=base_url
+            base_url=base_url,
+            manual_login_waiter=manual_login_waiter
         )
         self.last_statuses = {}
         self._logged_in = False
