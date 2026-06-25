@@ -19,7 +19,7 @@ class Worker(QObject):
     finished_signal = Signal(int)
     manual_login_required = Signal()
 
-    def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str, 
+    def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str,
                  targets, report_mode, headless):
         super().__init__()
         self.mode = mode
@@ -31,13 +31,22 @@ class Worker(QObject):
         self.report_mode = report_mode
         self.headless = headless
         self.login_event = threading.Event()
+        self.cancel_event = threading.Event()
+
+    def request_stop(self):
+        self.cancel_event.set()
+        self.login_event.set()
+        self.log_signal.emit("Stop requested. Waiting for current item to finish...")
 
     def wait_for_manual_login_gui(self):
         self.log_signal.emit("MANUAL LOGIN REQUIRED")
         self.log_signal.emit("Complete captcha/MFA in the opened browser, then click 'Continue After Login' in the GUI.")
-        self.manual_login_required.emit()
         self.login_event.clear()
-        self.login_event.wait()
+        self.manual_login_required.emit()
+
+        while not self.cancel_event.is_set():
+            if self.login_event.wait(0.2):
+                break
 
     def run(self):
         class StreamRedirector(io.StringIO):
@@ -51,14 +60,14 @@ class Worker(QObject):
                 super().write(text)
 
         redirector = StreamRedirector(self.log_signal)
-        
+
         exit_code = 1
         with contextlib.redirect_stdout(redirector), contextlib.redirect_stderr(redirector):
             try:
                 self.log_signal.emit("=" * 70)
                 self.log_signal.emit(f"RUN START: {self.mode}")
                 self.log_signal.emit("=" * 70)
-                
+
                 d_str = self.date_str if self.date_mode == "Single Date" else None
                 s_str = self.start_date_str if self.date_mode == "Date Range" else None
                 e_str = self.end_date_str if self.date_mode == "Date Range" else None
@@ -75,7 +84,8 @@ class Worker(QObject):
                         headless=self.headless,
                         start_date_str=s_str,
                         end_date_str=e_str,
-                        manual_login_waiter=self.wait_for_manual_login_gui
+                        manual_login_waiter=self.wait_for_manual_login_gui,
+                        cancel_event=self.cancel_event
                     )
                 elif self.mode == "Report":
                     exit_code = run_report_command(
@@ -83,7 +93,8 @@ class Worker(QObject):
                         date_str=d_str,
                         no_images=False,
                         start_date_str=s_str,
-                        end_date_str=e_str
+                        end_date_str=e_str,
+                        cancel_event=self.cancel_event
                     )
                 elif self.mode == "Full Pipeline":
                     exit_code = run_full_command(
@@ -94,16 +105,17 @@ class Worker(QObject):
                         no_images=False,
                         start_date_str=s_str,
                         end_date_str=e_str,
-                        manual_login_waiter=self.wait_for_manual_login_gui
+                        manual_login_waiter=self.wait_for_manual_login_gui,
+                        cancel_event=self.cancel_event
                     )
             except Exception as e:
                 self.log_signal.emit(f"[FATAL] {str(e)}")
                 exit_code = 1
-                
+
         self.log_signal.emit("=" * 70)
         self.log_signal.emit(f"RUN END: {self.mode} (exit_code={exit_code})")
         self.log_signal.emit("=" * 70)
-        
+
         self.finished_signal.emit(exit_code)
 
 class MainWindow(QMainWindow):
@@ -111,7 +123,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MRTG TelkomCare Report Automation")
         self.resize(800, 600)
-        
+
         self.worker_thread = None
         self.worker = None
 
@@ -164,18 +176,23 @@ class MainWindow(QMainWindow):
         buttons_layout = QHBoxLayout()
         self.run_btn = QPushButton("Run")
         self.run_btn.clicked.connect(self.run_command)
-        
+
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self.stop_command)
+
         self.continue_login_btn = QPushButton("Continue After Login")
         self.continue_login_btn.setEnabled(False)
         self.continue_login_btn.clicked.connect(self.continue_after_login)
-        
+
         self.clear_log_btn = QPushButton("Clear Log")
         self.clear_log_btn.clicked.connect(self.clear_log)
-        
+
         self.open_output_btn = QPushButton("Open Output Folder")
         self.open_output_btn.clicked.connect(self.open_output_folder)
-        
+
         buttons_layout.addWidget(self.run_btn)
+        buttons_layout.addWidget(self.stop_btn)
         buttons_layout.addWidget(self.continue_login_btn)
         buttons_layout.addWidget(self.clear_log_btn)
         buttons_layout.addWidget(self.open_output_btn)
@@ -227,6 +244,11 @@ class MainWindow(QMainWindow):
             self.worker.login_event.set()
             self.continue_login_btn.setEnabled(False)
 
+    def stop_command(self):
+        if self.worker:
+            self.worker.request_stop()
+            self.stop_btn.setEnabled(False)
+
     def run_command(self):
         date_mode = self.date_mode_cb.currentText()
         d_str = self.single_date_input.text().strip()
@@ -241,6 +263,7 @@ class MainWindow(QMainWindow):
             return
 
         self.run_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
         self.log_message("--- Starting Task ---")
 
         self.worker_thread = QThread()
@@ -260,7 +283,7 @@ class MainWindow(QMainWindow):
         self.worker.log_signal.connect(self.log_message)
         self.worker.finished_signal.connect(self.on_worker_finished)
         self.worker.manual_login_required.connect(lambda: self.continue_login_btn.setEnabled(True))
-        
+
         self.worker.finished_signal.connect(self.worker_thread.quit)
         self.worker.finished_signal.connect(self.worker.deleteLater)
         self.worker_thread.finished.connect(self.worker_thread.deleteLater)
@@ -268,8 +291,12 @@ class MainWindow(QMainWindow):
         self.worker_thread.start()
 
     def on_worker_finished(self, exit_code):
-        self.log_message(f"--- Task Finished (Exit code: {exit_code}) ---")
+        if exit_code == 130:
+            self.log_message("--- Task Stopped by User ---")
+        else:
+            self.log_message(f"--- Task Finished (Exit code: {exit_code}) ---")
         self.run_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
         self.continue_login_btn.setEnabled(False)
 
 def main():

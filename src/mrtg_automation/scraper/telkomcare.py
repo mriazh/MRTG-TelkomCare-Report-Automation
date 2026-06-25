@@ -40,6 +40,7 @@ class TelkomCareScraper:
         )
         self.last_statuses = {}
         self._logged_in = False
+        self.last_cancelled = False
     
     def login(self) -> bool:
         """Establish login session. Tries saved cookies first, then manual login.
@@ -86,7 +87,7 @@ class TelkomCareScraper:
             return False
     
     def scrape(self, targets: list[str], dates: list, 
-               mode: str = 'sid', progress_callback=None) -> dict:
+               mode: str = 'sid', progress_callback=None, cancel_event=None) -> dict:
         """Scrape all targets for all dates. Browser stays alive for entire session."""
         if not self._logged_in:
             if not self.login():
@@ -103,31 +104,58 @@ class TelkomCareScraper:
         logger.info("Navigated to graph page, starting scrape loop...")
         results = {}
         
+        total_items = len(dates) * len(targets)
+        current_index = 0
+
         for date_obj in dates:
             date_str = date_obj.strftime('%Y%m%d')
             output_dir = Path('data/MRTG-Data') / date_str
             output_dir.mkdir(parents=True, exist_ok=True)
             
             for target in targets:
+                if cancel_event is not None and cancel_event.is_set():
+                    print("[STOP] Scrape stop requested. Stopping before next item.")
+                    logger.warning("[STOP] Scrape stop requested. Stopping before next item.")
+                    self.last_cancelled = True
+                    return results
+
+                current_index += 1
                 try:
-                    logger.info(f"Capturing graph for {target} on {date_obj.strftime('%Y-%m-%d')} ({mode} mode)")
+                    prog_msg = f"[PROGRESS] {mode} {current_index}/{total_items} date={date_str} target={target} starting"
+                    print(prog_msg)
+                    logger.info(prog_msg)
+
                     filepath = extractor.capture_graph(target, date_obj)
                     
-                    self.last_statuses[(target, date_obj)] = {
+                    status_info = {
                         "status": getattr(extractor, 'last_status', None) or ("ok" if filepath else "error"),
                         "error": getattr(extractor, 'last_error', None),
                     }
+                    self.last_statuses[(target, date_obj)] = status_info
                     
                     if filepath:
-                        logger.info(f"Graph saved to {filepath}")
+                        msg = f"[OK] {mode} {current_index}/{total_items} date={date_str} target={target} saved={filepath}"
+                        print(msg)
+                        logger.info(msg)
                         if target not in results:
                             results[target] = {}
                         results[target][date_obj] = str(filepath)
-                    status = "OK" if filepath else "FAIL"
+                    elif status_info.get("status") == "no_graph":
+                        msg = f"[N/A] {mode} {current_index}/{total_items} date={date_str} target={target} no graph"
+                        print(msg)
+                        logger.info(msg)
+                    else:
+                        err = status_info.get("error") or "unknown"
+                        msg = f"[FAIL] {mode} {current_index}/{total_items} date={date_str} target={target} error={err}"
+                        print(msg)
+                        logger.error(msg)
+
                     if progress_callback:
                         progress_callback(target, date_obj, filepath is not None)
                 except Exception as e:
-                    logger.error(f"Failed {target} {date_str}: {e}")
+                    msg = f"[FAIL] {mode} {current_index}/{total_items} date={date_str} target={target} error={e}"
+                    print(msg)
+                    logger.error(msg)
                     results.setdefault(target, {})[date_obj] = None
         
         return results

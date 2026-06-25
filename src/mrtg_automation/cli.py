@@ -219,7 +219,7 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
     print("[FAIL] You must provide either --date OR both --start-date and --end-date")
     return []
 
-def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None) -> int:
+def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None, cancel_event=None) -> int:
     """
     Run scrape-only command for one or more dates.
     """
@@ -281,9 +281,15 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
     from .scraper.telkomcare import TelkomCareScraper
     scraper = TelkomCareScraper(headless=headless, manual_login_waiter=manual_login_waiter)
 
+    cancelled = False
     try:
         print("Logging in...")
         if not scraper.login():
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                print("[STOP] Scrape stopped during manual login.")
+                log_run_boundary("RUN END", "scrape exit_code=130 stopped_during_login")
+                return 130
             print("[FAIL] Login failed")
             log_run_boundary("RUN END", "scrape exit_code=1 login failed")
             return 1
@@ -292,13 +298,21 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
         if sid_targets:
             print(f"\nScraping {len(sid_targets)} SID targets across {len(dates)} dates...")
-            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid")
+            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid", cancel_event=cancel_event)
+            if getattr(scraper, "last_cancelled", False):
+                cancelled = True
+                log_run_boundary("RUN END", "scrape exit_code=130 stopped_by_user")
+                return 130
             if results_sid:
                 results_all.update(results_sid)
 
         if graphtitle_targets:
             print(f"\nScraping {len(graphtitle_targets)} Graph-title targets across {len(dates)} dates...")
-            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle")
+            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle", cancel_event=cancel_event)
+            if getattr(scraper, "last_cancelled", False):
+                cancelled = True
+                log_run_boundary("RUN END", "scrape exit_code=130 stopped_by_user")
+                return 130
             if results_gt:
                 results_all.update(results_gt)
 
@@ -338,11 +352,12 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         log_run_boundary("RUN END", f"scrape exit_code=1 ok={passed} na={na_count} fail={failed_count}")
         return 1
     finally:
-        scraper.close()
+        if not cancelled:
+            scraper.close()
 
 import os
 
-def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None) -> int:
+def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None) -> int:
     ensure_directories()
     setup_logging()
 
@@ -414,8 +429,14 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
         output_path=output_file,
         mapping_file=mapping_file,
         list_file=list_file,
-        date_filter=date_filter
+        date_filter=date_filter,
+        cancel_event=cancel_event
     )
+
+    if summary.get("cancelled"):
+        print("[STOP] Report stopped by user.")
+        log_run_boundary("RUN END", "report exit_code=130 stopped_by_user")
+        return 130
 
     print("\nReport Summary:")
     print(f"Dates processed    : {summary.get('dates_processed', 0)}")
@@ -448,7 +469,8 @@ def run_full_command(
     no_images: bool = False,
     start_date_str: str = None,
     end_date_str: str = None,
-    manual_login_waiter=None
+    manual_login_waiter=None,
+    cancel_event=None
 ) -> int:
     ensure_directories()
     setup_logging()
@@ -478,14 +500,22 @@ def run_full_command(
     
     log_run_boundary("RUN START", f"full targets={targets_filter} report_mode={report_mode}")
     
-    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, manual_login_waiter)
-    if scrape_exit_code != 0:
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, manual_login_waiter, cancel_event)
+    if scrape_exit_code == 130:
+        print("\n[STOP] Full pipeline stopped during scrape.")
+        log_run_boundary("RUN END", "full exit_code=130 stopped_during_scrape")
+        return 130
+    elif scrape_exit_code != 0:
         print("\n[FAIL] Scrape step failed. Report step skipped.")
         log_run_boundary("RUN END", f"full exit_code={scrape_exit_code} (scrape failed)")
         return scrape_exit_code
         
-    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str)
-    if report_exit_code != 0:
+    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event)
+    if report_exit_code == 130:
+        print("\n[STOP] Full pipeline stopped during report.")
+        log_run_boundary("RUN END", "full exit_code=130 stopped_during_report")
+        return 130
+    elif report_exit_code != 0:
         print("\n[FAIL] Report step failed.")
         log_run_boundary("RUN END", f"full exit_code={report_exit_code} (report failed)")
         return report_exit_code

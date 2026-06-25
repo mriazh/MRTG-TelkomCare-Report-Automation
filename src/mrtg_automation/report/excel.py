@@ -27,7 +27,7 @@ class ExcelReportGenerator:
         folders.sort()
         return folders
 
-    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None):
+    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None, cancel_event=None):
         """
         Main orchestration logic for report generation.
         """
@@ -121,6 +121,9 @@ class ExcelReportGenerator:
                 print(f"\n[FAIL] {e}")
                 return summary
 
+        total_items = len(tanggal_list) * len(items)
+        current_index = 0
+
         # Loop through each date folder
         for tanggal_str in tanggal_list:
             hari = int(tanggal_str[6:8])
@@ -144,8 +147,26 @@ class ExcelReportGenerator:
                 continue
 
             for nomor, tipe, target_id in items:
+                if cancel_event is not None and cancel_event.is_set():
+                    print("[STOP] Report stop requested. Stopping before next item.")
+                    logger.warning("[STOP] Report stop requested. Stopping before next item.")
+                    summary["cancelled"] = True
+                    summary["success"] = False
+                    return summary
+
+                current_index += 1
+                prog_msg = f"[PROGRESS] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} starting"
+                print(prog_msg)
+                logger.info(prog_msg)
+
+                item_status = "OK"
+                item_error = None
+                item_suffix = ""
+
                 if target_id not in mapping:
-                    logger.warning(f"[{tipe}] '{target_id}' not found in mapping. Skipping.")
+                    msg = f"[N/A] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} reason=not_in_mapping"
+                    print(msg)
+                    logger.warning(msg)
                     summary["missing_mappings"] += 1
                     continue
 
@@ -162,7 +183,9 @@ class ExcelReportGenerator:
                 path_gambar = data_dir / tanggal_str / filename
 
                 if not path_gambar.exists():
-                    logger.warning(f"Missing screenshot: {path_gambar.name}")
+                    msg = f"[FAIL] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} error=missing_screenshot"
+                    print(msg)
+                    logger.warning(msg)
                     summary["missing_screenshots"] += 1
                     continue
 
@@ -185,6 +208,8 @@ class ExcelReportGenerator:
                             "status": "Fail",
                             "na_count": 6
                         })
+                        item_status = "FAIL"
+                        item_error = "ocr_failed"
                         # Optional: fill all mapped text fields with N/A
                         for key, (r, c) in mapping[target_id].items():
                             if key != 'Image':
@@ -204,6 +229,7 @@ class ExcelReportGenerator:
                                 "status": "Partial",
                                 "na_count": na_count
                             })
+                            item_suffix = f" ocr_status=partial na_count={na_count}"
                             
                         for key, (r, c) in mapping[target_id].items():
                             if key != 'Image' and key in ocr_vals:
@@ -218,6 +244,20 @@ class ExcelReportGenerator:
                         summary["image_inserted"] += 1
                     else:
                         summary["failed_inserts"] += 1
+                        item_status = "FAIL"
+                        if not item_error:
+                            item_error = "image_insert_failed"
+                        else:
+                            item_error += ",image_insert_failed"
+
+                if item_status == "OK":
+                    msg = f"[OK] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id}{item_suffix}"
+                    print(msg)
+                    logger.info(msg)
+                else:
+                    msg = f"[FAIL] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} error={item_error}{item_suffix}"
+                    print(msg)
+                    logger.error(msg)
 
         logger.info(f"Saving workbook to {output_path}")
         # Ensure parent directories exist
