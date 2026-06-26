@@ -3,6 +3,7 @@ import os
 import io
 import contextlib
 import threading
+from datetime import datetime
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -344,17 +345,52 @@ class MainWindow(QMainWindow):
                 state["status"] = "stopped"
                 save_resume_state(state)
 
+    def validate_date_inputs(self, date_mode, d_str, s_str, e_str):
+        def _check_date(val):
+            if len(val) != 8 or not val.isdigit():
+                return False, "Date must use YYYYMMDD format."
+            try:
+                datetime.strptime(val, "%Y%m%d")
+                return True, ""
+            except ValueError:
+                return False, f"Invalid calendar date: {val}."
+
+        if date_mode == "Single Date":
+            if not d_str:
+                return False, "Single date is required.", self.single_date_input
+            ok, msg = _check_date(d_str)
+            if not ok:
+                return False, msg, self.single_date_input
+        else:
+            if not s_str or not e_str:
+                focus = self.start_date_input if not s_str else self.end_date_input
+                return False, "Both start date and end date are required.", focus
+
+            ok, msg = _check_date(s_str)
+            if not ok:
+                return False, msg, self.start_date_input
+
+            ok, msg = _check_date(e_str)
+            if not ok:
+                return False, msg, self.end_date_input
+
+            if e_str < s_str:
+                return False, "End date cannot be before start date.", self.end_date_input
+
+        return True, "", None
+
     def run_command(self):
         date_mode = self.date_mode_cb.currentText()
         d_str = self.single_date_input.text().strip()
         s_str = self.start_date_input.text().strip()
         e_str = self.end_date_input.text().strip()
 
-        if date_mode == "Single Date" and not d_str:
-            self.log_message("[FAIL] Single date is required.")
-            return
-        if date_mode == "Date Range" and (not s_str or not e_str):
-            self.log_message("[FAIL] Both start and end dates are required.")
+        ok, msg, field = self.validate_date_inputs(date_mode, d_str, s_str, e_str)
+        if not ok:
+            self.log_message(f"[FAIL] {msg}")
+            QMessageBox.warning(self, "Invalid Date", msg)
+            if field:
+                field.setFocus()
             return
 
         self.run_btn.setEnabled(False)
