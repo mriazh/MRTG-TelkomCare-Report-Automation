@@ -3,22 +3,23 @@ import os
 import io
 import contextlib
 import threading
-from datetime import datetime
+
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QComboBox, QLineEdit, QCheckBox, QPushButton, QTextEdit,
-    QFormLayout, QGroupBox, QMessageBox, QToolButton, QMenu
+    QComboBox, QCheckBox, QPushButton, QTextEdit, QLabel,
+    QFormLayout, QGroupBox, QMessageBox, QToolButton, QMenu,
+    QDateEdit
 )
-from PySide6.QtCore import QThread, Signal, QObject, QUrl
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtCore import QThread, Signal, QObject, QUrl, QDate
+from PySide6.QtGui import QAction, QDesktopServices, QIcon
 
 from mrtg_automation import app_info
 from mrtg_automation.gui.about_dialog import show_about_dialog
 from mrtg_automation.gui.update_checker import UpdateManager
 
 from mrtg_automation.cli import run_scrape_command, run_report_command, run_full_command
-from mrtg_automation.shared.paths import REPORTS_DIR
+from mrtg_automation.shared.paths import REPORTS_DIR, ROOT_DIR
 from mrtg_automation.shared.resume_state import (
     load_resume_state, save_resume_state, clear_resume_state,
     has_unfinished_resume_state, format_resume_summary
@@ -148,6 +149,16 @@ class MainWindow(QMainWindow):
         self.update_manager = UpdateManager(self)
 
         self.setup_ui()
+        icon_path_ico = ROOT_DIR / "assets" / "app_icon.ico"
+        icon_path_png = ROOT_DIR / "assets" / "app_icon.png"
+        icon_path_svg = ROOT_DIR / "assets" / "app_icon.svg"
+        if icon_path_ico.exists():
+            self.setWindowIcon(QIcon(str(icon_path_ico)))
+        elif icon_path_png.exists():
+            self.setWindowIcon(QIcon(str(icon_path_png)))
+        elif icon_path_svg.exists():
+            self.setWindowIcon(QIcon(str(icon_path_svg)))
+
         self.check_resume_state()
 
     def check_resume_state(self):
@@ -168,13 +179,23 @@ class MainWindow(QMainWindow):
                 self.log_message("Resume state loaded. Click Resume to continue.")
                 self.pending_resume_state = state
                 self.mode_cb.setCurrentText(state.get("operation_mode", "Scrape"))
-                self.date_mode_cb.setCurrentText(state.get("date_mode", "Single Date"))
-                if state.get("date_str"):
-                    self.single_date_input.setText(state.get("date_str"))
-                if state.get("start_date_str"):
-                    self.start_date_input.setText(state.get("start_date_str"))
-                if state.get("end_date_str"):
-                    self.end_date_input.setText(state.get("end_date_str"))
+                try:
+                    if state.get("date_str"):
+                        parsed = QDate.fromString(state.get("date_str"), "yyyyMMdd")
+                        if parsed.isValid():
+                            self.start_date_input.setDate(parsed)
+                            self.end_date_input.setDate(parsed)
+                    else:
+                        if state.get("start_date_str"):
+                            parsed = QDate.fromString(state.get("start_date_str"), "yyyyMMdd")
+                            if parsed.isValid():
+                                self.start_date_input.setDate(parsed)
+                        if state.get("end_date_str"):
+                            parsed = QDate.fromString(state.get("end_date_str"), "yyyyMMdd")
+                            if parsed.isValid():
+                                self.end_date_input.setDate(parsed)
+                except Exception:
+                    pass
                 self.targets_cb.setCurrentText(state.get("targets_filter", "image"))
                 self.report_mode_cb.setCurrentText(state.get("report_mode", "image"))
                 self.run_btn.setText("Resume")
@@ -197,8 +218,12 @@ class MainWindow(QMainWindow):
         # Top menu bar
         top_bar_layout = QHBoxLayout()
         self.menu_btn = QToolButton()
-        self.menu_btn.setText("Menu")
+        self.menu_btn.setText("☰")
+        self.menu_btn.setToolTip("Menu")
+        self.menu_btn.setAccessibleName("Menu")
+        self.menu_btn.setFixedSize(30, 30)
         self.menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self.menu_btn.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
 
         menu = QMenu(self)
 
@@ -234,22 +259,26 @@ class MainWindow(QMainWindow):
         self.mode_cb.currentTextChanged.connect(self.on_mode_changed)
         form_layout.addRow("Operation Mode:", self.mode_cb)
 
-        self.date_mode_cb = QComboBox()
-        self.date_mode_cb.addItems(["Single Date", "Date Range"])
-        self.date_mode_cb.currentTextChanged.connect(self.on_date_mode_changed)
-        form_layout.addRow("Date Mode:", self.date_mode_cb)
+        self.start_date_input = QDateEdit()
+        self.start_date_input.setCalendarPopup(True)
+        self.start_date_input.setDisplayFormat("yyyyMMdd")
+        self.start_date_input.setDate(QDate.currentDate())
 
-        self.single_date_input = QLineEdit()
-        self.single_date_input.setPlaceholderText("YYYYMMDD")
-        form_layout.addRow("Single Date:", self.single_date_input)
+        self.end_date_input = QDateEdit()
+        self.end_date_input.setCalendarPopup(True)
+        self.end_date_input.setDisplayFormat("yyyyMMdd")
+        self.end_date_input.setDate(QDate.currentDate())
 
-        self.start_date_input = QLineEdit()
-        self.start_date_input.setPlaceholderText("YYYYMMDD")
-        form_layout.addRow("Start Date:", self.start_date_input)
-
-        self.end_date_input = QLineEdit()
-        self.end_date_input.setPlaceholderText("YYYYMMDD")
-        form_layout.addRow("End Date:", self.end_date_input)
+        date_range_widget = QWidget()
+        date_range_layout = QHBoxLayout(date_range_widget)
+        date_range_layout.setContentsMargins(0, 0, 0, 0)
+        date_range_layout.addWidget(QLabel("Start"))
+        date_range_layout.addWidget(self.start_date_input)
+        date_range_layout.addSpacing(16)
+        date_range_layout.addWidget(QLabel("End"))
+        date_range_layout.addWidget(self.end_date_input)
+        date_range_layout.addStretch()
+        form_layout.addRow("Date:", date_range_widget)
 
         self.targets_cb = QComboBox()
         self.targets_cb.addItems(["image", "ocr", "all"])
@@ -280,32 +309,17 @@ class MainWindow(QMainWindow):
         self.clear_log_btn = QPushButton("Clear Log")
         self.clear_log_btn.clicked.connect(self.clear_log)
 
-        self.open_output_btn = QPushButton("Open Output Folder")
-        self.open_output_btn.clicked.connect(self.open_output_folder)
-
         buttons_layout.addWidget(self.run_btn)
         buttons_layout.addWidget(self.stop_btn)
         buttons_layout.addWidget(self.continue_login_btn)
         buttons_layout.addWidget(self.clear_log_btn)
-        buttons_layout.addWidget(self.open_output_btn)
         main_layout.addLayout(buttons_layout)
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         main_layout.addWidget(self.log_text)
 
-        self.on_date_mode_changed(self.date_mode_cb.currentText())
         self.on_mode_changed(self.mode_cb.currentText())
-
-    def on_date_mode_changed(self, text):
-        if text == "Single Date":
-            self.single_date_input.setEnabled(True)
-            self.start_date_input.setEnabled(False)
-            self.end_date_input.setEnabled(False)
-        else:
-            self.single_date_input.setEnabled(False)
-            self.start_date_input.setEnabled(True)
-            self.end_date_input.setEnabled(True)
 
     def on_mode_changed(self, text):
         if text == "Scrape":
@@ -346,46 +360,27 @@ class MainWindow(QMainWindow):
                 save_resume_state(state)
 
     def validate_date_inputs(self, date_mode, d_str, s_str, e_str):
-        def _check_date(val):
-            if len(val) != 8 or not val.isdigit():
-                return False, "Date must use YYYYMMDD format."
-            try:
-                datetime.strptime(val, "%Y%m%d")
-                return True, ""
-            except ValueError:
-                return False, f"Invalid calendar date: {val}."
-
-        if date_mode == "Single Date":
-            if not d_str:
-                return False, "Single date is required.", self.single_date_input
-            ok, msg = _check_date(d_str)
-            if not ok:
-                return False, msg, self.single_date_input
-        else:
-            if not s_str or not e_str:
-                focus = self.start_date_input if not s_str else self.end_date_input
-                return False, "Both start date and end date are required.", focus
-
-            ok, msg = _check_date(s_str)
-            if not ok:
-                return False, msg, self.start_date_input
-
-            ok, msg = _check_date(e_str)
-            if not ok:
-                return False, msg, self.end_date_input
-
+        if date_mode == "Date Range":
             if e_str < s_str:
                 return False, "End date cannot be before start date.", self.end_date_input
-
         return True, "", None
 
     def run_command(self):
-        date_mode = self.date_mode_cb.currentText()
-        d_str = self.single_date_input.text().strip()
-        s_str = self.start_date_input.text().strip()
-        e_str = self.end_date_input.text().strip()
+        s_str = self.start_date_input.date().toString("yyyyMMdd")
+        e_str = self.end_date_input.date().toString("yyyyMMdd")
 
-        ok, msg, field = self.validate_date_inputs(date_mode, d_str, s_str, e_str)
+        if s_str == e_str:
+            date_mode = "Single Date"
+            d_str = s_str
+            start_date_str = ""
+            end_date_str = ""
+        else:
+            date_mode = "Date Range"
+            d_str = ""
+            start_date_str = s_str
+            end_date_str = e_str
+
+        ok, msg, field = self.validate_date_inputs(date_mode, d_str, start_date_str, end_date_str)
         if not ok:
             self.log_message(f"[FAIL] {msg}")
             QMessageBox.warning(self, "Invalid Date", msg)
@@ -418,8 +413,8 @@ class MainWindow(QMainWindow):
                 "operation_mode": mode_val,
                 "date_mode": date_mode,
                 "date_str": d_str,
-                "start_date_str": s_str,
-                "end_date_str": e_str,
+                "start_date_str": start_date_str,
+                "end_date_str": end_date_str,
                 "dates": dates_for_state,
                 "targets_filter": self.targets_cb.currentText(),
                 "report_mode": self.report_mode_cb.currentText(),
@@ -440,8 +435,8 @@ class MainWindow(QMainWindow):
             mode=self.mode_cb.currentText(),
             date_mode=date_mode,
             date_str=d_str,
-            start_date_str=s_str,
-            end_date_str=e_str,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str,
             targets=self.targets_cb.currentText(),
             report_mode=self.report_mode_cb.currentText(),
             headless=self.headless_cb.isChecked(),

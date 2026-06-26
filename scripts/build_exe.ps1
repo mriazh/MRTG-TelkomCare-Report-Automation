@@ -60,5 +60,10 @@ if (Test-Path "templates") {
     Copy-Item -Recurse -Force "templates" "dist\MRTG-TelkomCare\"
 }
 
+# Copy assets if they exist
+if (Test-Path "assets") {
+    Copy-Item -Recurse -Force "assets" "dist\MRTG-TelkomCare\"
+}
+
 Write-Host "Build complete! Output location:" -ForegroundColor Green
 Write-Host "dist\MRTG-TelkomCare\MRTG-TelkomCare.exe" -ForegroundColor Green
