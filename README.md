@@ -35,6 +35,23 @@ Run the CLI menu:
 python -m mrtg_automation
 ```
 
+## Build Windows EXE
+To build a standalone executable for Windows:
+
+1. Ensure your `.venv312` is activated and dependencies are installed explicitly:
+   ```powershell
+   .venv312\Scripts\python -m pip install -e .[gui,ocr]
+   ```
+2. Install PyInstaller if you haven't already:
+   ```powershell
+   .venv312\Scripts\python -m pip install pyinstaller
+   ```
+3. Run the build script:
+   ```powershell
+   .\scripts\build_exe.ps1 -Clean
+   ```
+4. Find the executable at `dist\MRTG-TelkomCare\MRTG-TelkomCare.exe`.
+
 ## Deprecation Notice
 This repository merges and deprecates the following legacy projects:
 - `Automated-Daily-MRTG-Telkom-in-GMF`

@@ -37,5 +37,6 @@ config/report-items.txt
 dist/
 build/
 *.spec
+!mrtg_telkomcare.spec
 *.egg-info/
 src/*.egg-info/
