@@ -1,7 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-import os
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
-from PyInstaller.building.datastruct import Tree
 
 block_cipher = None
 
@@ -30,9 +28,8 @@ a = Analysis(
     noarchive=False,
 )
 
-for folder in ['config', 'templates', 'data']:
-    if os.path.exists(folder):
-        a.datas += Tree(folder, prefix=folder)
+# Do not use Tree here because it puts them in _internal.
+# We will copy them in the build script instead.
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

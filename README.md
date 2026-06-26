@@ -38,6 +38,9 @@ python -m mrtg_automation
 ## Build Windows EXE
 To build a standalone executable for Windows:
 
+> [!IMPORTANT]
+> Local credentials in `config/.env` and target lists like `config/SID-MRTG.txt` are intentionally **not bundled** into the release output to prevent leaking secrets. After building, you must copy `config/.env.example` to `config/.env` in the output folder and provide your credentials before scraping.
+
 1. Ensure your `.venv312` is activated and dependencies are installed explicitly:
    ```powershell
    .venv312\Scripts\python -m pip install -e .[gui,ocr]

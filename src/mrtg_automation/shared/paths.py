@@ -8,7 +8,7 @@ def resolve_root() -> Path:
     """
     if getattr(sys, 'frozen', False):
         # Running as compiled PyInstaller executable
-        return Path(sys._MEIPASS).resolve()
+        return Path(sys.executable).resolve().parent
     else:
         # Running from source (src/mrtg_automation/shared/paths.py)
         # Root is 4 levels up: src/mrtg_automation/shared -> src/mrtg_automation -> src -> root
