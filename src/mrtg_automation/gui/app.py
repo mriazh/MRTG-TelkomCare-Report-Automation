@@ -7,9 +7,14 @@ import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QLineEdit, QCheckBox, QPushButton, QTextEdit,
-    QFormLayout, QGroupBox, QMessageBox
+    QFormLayout, QGroupBox, QMessageBox, QToolButton, QMenu
 )
-from PySide6.QtCore import QThread, Signal, QObject
+from PySide6.QtCore import QThread, Signal, QObject, QUrl
+from PySide6.QtGui import QAction, QDesktopServices
+
+from mrtg_automation import app_info
+from mrtg_automation.gui.about_dialog import show_about_dialog
+from mrtg_automation.gui.update_checker import UpdateManager
 
 from mrtg_automation.cli import run_scrape_command, run_report_command, run_full_command
 from mrtg_automation.shared.paths import REPORTS_DIR
@@ -139,6 +144,7 @@ class MainWindow(QMainWindow):
         self.worker_thread = None
         self.worker = None
         self.pending_resume_state = None
+        self.update_manager = UpdateManager(self)
 
         self.setup_ui()
         self.check_resume_state()
@@ -186,6 +192,38 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+
+        # Top menu bar
+        top_bar_layout = QHBoxLayout()
+        self.menu_btn = QToolButton()
+        self.menu_btn.setText("Menu")
+        self.menu_btn.setPopupMode(QToolButton.InstantPopup)
+
+        menu = QMenu(self)
+
+        action_update = QAction("Check for Updates", self)
+        action_update.triggered.connect(lambda: self.update_manager.check_for_updates(is_manual=True))
+        menu.addAction(action_update)
+
+        action_log = QAction("Open Log Folder", self)
+        action_log.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(app_info.get_log_dir()))))
+        menu.addAction(action_log)
+
+        action_output = QAction("Open Output Folder", self)
+        action_output.triggered.connect(self.open_output_folder)
+        menu.addAction(action_output)
+
+        menu.addSeparator()
+
+        action_about = QAction("About", self)
+        action_about.triggered.connect(lambda: show_about_dialog(self))
+        menu.addAction(action_about)
+
+        self.menu_btn.setMenu(menu)
+        top_bar_layout.addWidget(self.menu_btn)
+        top_bar_layout.addStretch()
+
+        main_layout.addLayout(top_bar_layout)
 
         controls_group = QGroupBox("Configuration")
         form_layout = QFormLayout()
