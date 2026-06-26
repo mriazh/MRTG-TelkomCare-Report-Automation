@@ -102,7 +102,9 @@ class Worker(QObject):
                         no_images=False,
                         start_date_str=s_str,
                         end_date_str=e_str,
-                        cancel_event=self.cancel_event
+                        cancel_event=self.cancel_event,
+                        resume_state=self.resume_state,
+                        resume_mode=self.resume_mode
                     )
                 elif self.mode == "Full Pipeline":
                     exit_code = run_full_command(

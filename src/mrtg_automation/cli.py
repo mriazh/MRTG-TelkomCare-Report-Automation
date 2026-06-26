@@ -374,7 +374,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
 import os
 
-def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None) -> int:
+def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None, resume_state=None, resume_mode: bool = False) -> int:
     ensure_directories()
     setup_logging()
 
@@ -437,6 +437,12 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
         print("Images disabled via --no-images")
     print("=" * 70)
 
+    phase = "report_image" if mode == "image" else "report_ocr"
+    if resume_state is not None:
+        from .shared.resume_state import save_resume_state
+        resume_state["current_phase"] = phase
+        save_resume_state(resume_state)
+
     cfg = Config()
     generator = ExcelReportGenerator(cfg)
     summary = generator.generate(
@@ -447,7 +453,10 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
         mapping_file=mapping_file,
         list_file=list_file,
         date_filter=date_filter,
-        cancel_event=cancel_event
+        cancel_event=cancel_event,
+        resume_state=resume_state,
+        resume_mode=resume_mode,
+        phase=phase
     )
 
     if summary.get("cancelled"):
@@ -534,7 +543,7 @@ def run_full_command(
         resume_state["current_phase"] = "report_image" if report_mode == "image" else "report_ocr"
         save_resume_state(resume_state)
 
-    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event)
+    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event, resume_state, resume_mode)
     if report_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during report.")
         log_run_boundary("RUN END", "full exit_code=130 stopped_during_report")

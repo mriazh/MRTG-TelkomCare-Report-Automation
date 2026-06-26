@@ -18,16 +18,16 @@ class ExcelReportGenerator:
         """Find and return sorted YYYYMMDD folder names inside the data_dir."""
         if not data_dir.exists():
             return []
-            
+
         folders = []
         for entry in os.scandir(data_dir):
             if entry.is_dir() and entry.name.isdigit() and len(entry.name) == 8:
                 folders.append(entry.name)
-        
+
         folders.sort()
         return folders
 
-    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None, cancel_event=None):
+    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None, cancel_event=None, resume_state=None, resume_mode: bool = False, phase: str = None):
         """
         Main orchestration logic for report generation.
         """
@@ -72,7 +72,7 @@ class ExcelReportGenerator:
             mapping = parse_image_only_mapping(mapping_file)
         elif report_mode == 'OCR_IMAGE':
             mapping = parse_ocr_mapping(mapping_file)
-            
+
         if not mapping:
             logger.error("Mapping is empty. Aborting.")
             return summary
@@ -93,7 +93,7 @@ class ExcelReportGenerator:
             else:
                 allowed = set(date_filter)
                 tanggal_list = [t for t in tanggal_list if t in allowed]
-        
+
         tanggal_list.sort()
         if not tanggal_list:
             logger.error(f"No valid YYYYMMDD folders found in {data_dir} matching filter.")
@@ -102,9 +102,16 @@ class ExcelReportGenerator:
         summary["dates_processed"] = len(tanggal_list)
         summary["expected"] = len(items) * len(tanggal_list)
 
-        logger.info(f"Loading template: {template_path.name}")
-        wb = load_workbook(template_path)
-        
+        phase = phase or ("report_image" if report_mode == "IMAGE_ONLY" else "report_ocr")
+
+        if resume_mode and output_path.exists():
+            logger.info(f"Loading partial workbook: {output_path.name}")
+            print(f"[RESUME] Loading partial workbook: {output_path}")
+            wb = load_workbook(output_path)
+        else:
+            logger.info(f"Loading template: {template_path.name}")
+            wb = load_workbook(template_path)
+
         # Lazy load OCRExtractor
         OCRExtractor = None
         if report_mode == 'OCR_IMAGE':
@@ -124,18 +131,38 @@ class ExcelReportGenerator:
         total_items = len(tanggal_list) * len(items)
         current_index = 0
 
+        from mrtg_automation.shared.resume_state import get_completed_item_keys, mark_item_completed, save_resume_state, make_item_key, count_completed_items_for_phase
+        if resume_state is not None:
+            resume_state["status"] = "running"
+            resume_state["current_phase"] = phase
+            resume_state["phase_total_items"] = total_items
+            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+            if not resume_state.get("total_items"):
+                resume_state["total_items"] = total_items
+            save_resume_state(resume_state)
+
+        completed_keys = get_completed_item_keys(resume_state) if resume_state and resume_mode else set()
+
+        def find_completed_item(key):
+            if not resume_state:
+                return None
+            for item in resume_state.get("completed_items", []):
+                if item.get("key") == key:
+                    return item
+            return None
+
         # Loop through each date folder
         for tanggal_str in tanggal_list:
             hari = int(tanggal_str[6:8])
             sheet_name = f"{hari:02d}"
-            
+
             # Find the target sheet (01, 02.. or 1, 2..)
             if sheet_name not in wb.sheetnames:
                 sheet_name = str(hari)
                 if sheet_name not in wb.sheetnames:
                     logger.warning(f"Sheet {hari:02d} not found in template. Skipping date {tanggal_str}.")
                     continue
-            
+
             sheet = wb[sheet_name]
             logger.info(f"Processing date: {tanggal_str} on Sheet: {sheet_name}")
 
@@ -147,12 +174,34 @@ class ExcelReportGenerator:
                 continue
 
             for nomor, tipe, target_id in items:
+                key = make_item_key(phase, report_mode, tanggal_str, target_id)
+
+                if resume_state is not None:
+                    resume_state["next_item"] = {
+                        "phase": phase,
+                        "mode": report_mode,
+                        "date": tanggal_str,
+                        "target": target_id,
+                        "key": key
+                    }
+                    save_resume_state(resume_state)
+
                 if cancel_event is not None and cancel_event.is_set():
-                    print("[STOP] Report stop requested. Stopping before next item.")
+                    print("[STOP] Report stop requested. Saving partial workbook before stopping.")
                     logger.warning("[STOP] Report stop requested. Stopping before next item.")
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    wb.save(output_path)
                     summary["cancelled"] = True
                     summary["success"] = False
+                    if resume_state is not None:
+                        resume_state["status"] = "stopped"
+                        save_resume_state(resume_state)
                     return summary
+
+                if resume_mode and key in completed_keys:
+                    print(f"[SKIP] report {current_index + 1}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} already completed")
+                    current_index += 1
+                    continue
 
                 current_index += 1
                 prog_msg = f"[PROGRESS] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} starting"
@@ -162,12 +211,19 @@ class ExcelReportGenerator:
                 item_status = "OK"
                 item_error = None
                 item_suffix = ""
+                ocr_status_for_state = None
 
                 if target_id not in mapping:
                     msg = f"[N/A] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} reason=not_in_mapping"
                     print(msg)
                     logger.warning(msg)
                     summary["missing_mappings"] += 1
+                    if resume_state is not None:
+                        item = {"phase": phase, "mode": report_mode, "date": tanggal_str, "target": target_id, "status": "missing_mapping", "error": None, "key": key}
+                        mark_item_completed(resume_state, item)
+                        resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                        save_resume_state(resume_state)
+                        completed_keys.add(key)
                     continue
 
                 if report_mode == 'IMAGE_ONLY':
@@ -187,6 +243,12 @@ class ExcelReportGenerator:
                     print(msg)
                     logger.warning(msg)
                     summary["missing_screenshots"] += 1
+                    if resume_state is not None:
+                        item = {"phase": phase, "mode": report_mode, "date": tanggal_str, "target": target_id, "status": "missing_screenshot", "error": None, "key": key}
+                        mark_item_completed(resume_state, item)
+                        resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                        save_resume_state(resume_state)
+                        completed_keys.add(key)
                     continue
 
                 # Try OCR if applicable
@@ -197,7 +259,7 @@ class ExcelReportGenerator:
                     except Exception as e:
                         logger.error(f"OCR Extractor exception: {e}")
                         ocr_vals = None
-                    
+
                     if ocr_vals is None:
                         print("FAIL")
                         summary["ocr_fail"] += 1
@@ -210,18 +272,21 @@ class ExcelReportGenerator:
                         })
                         item_status = "FAIL"
                         item_error = "ocr_failed"
+                        ocr_status_for_state = "ocr_failed"
                         # Optional: fill all mapped text fields with N/A
-                        for key, (r, c) in mapping[target_id].items():
-                            if key != 'Image':
+                        for field_key, (r, c) in mapping[target_id].items():
+                            if field_key != 'Image':
                                 sheet.cell(row=r, column=c, value="N/A")
                     else:
                         na_count = sum(1 for v in ocr_vals.values() if v == 'N/A')
                         if na_count == 0:
                             print("OK")
                             summary["ocr_ok"] += 1
+                            ocr_status_for_state = "ocr_ok"
                         else:
                             print(f"PARTIAL ({na_count}/6 N/A)")
                             summary["ocr_partial"] += 1
+                            ocr_status_for_state = "ocr_partial"
                             summary["review_list"].append({
                                 "target_id": target_id,
                                 "date": tanggal_str,
@@ -230,10 +295,10 @@ class ExcelReportGenerator:
                                 "na_count": na_count
                             })
                             item_suffix = f" ocr_status=partial na_count={na_count}"
-                            
-                        for key, (r, c) in mapping[target_id].items():
-                            if key != 'Image' and key in ocr_vals:
-                                sheet.cell(row=r, column=c, value=ocr_vals[key])
+
+                        for field_key, (r, c) in mapping[target_id].items():
+                            if field_key != 'Image' and field_key in ocr_vals:
+                                sheet.cell(row=r, column=c, value=ocr_vals[field_key])
 
                 # Insert the image
                 insert_img_flag = os.environ.get('INSERT_IMAGES', 'True').lower() == 'true'
@@ -250,14 +315,36 @@ class ExcelReportGenerator:
                         else:
                             item_error += ",image_insert_failed"
 
-                if item_status == "OK":
+                if item_status != "OK":
+                    status_for_state = item_error if item_error else "error"
+                    msg = f"[FAIL] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} error={item_error}{item_suffix}"
+                    print(msg)
+                    logger.error(msg)
+                elif report_mode == "OCR_IMAGE" and ocr_status_for_state:
+                    status_for_state = ocr_status_for_state
                     msg = f"[OK] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id}{item_suffix}"
                     print(msg)
                     logger.info(msg)
                 else:
-                    msg = f"[FAIL] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} error={item_error}{item_suffix}"
+                    status_for_state = "ok"
+                    msg = f"[OK] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id}{item_suffix}"
                     print(msg)
-                    logger.error(msg)
+                    logger.info(msg)
+
+                if resume_state is not None:
+                    item = {
+                        "phase": phase,
+                        "mode": report_mode,
+                        "date": tanggal_str,
+                        "target": target_id,
+                        "status": status_for_state,
+                        "error": item_error,
+                        "key": key
+                    }
+                    mark_item_completed(resume_state, item)
+                    resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                    save_resume_state(resume_state)
+                    completed_keys.add(key)
 
         logger.info(f"Saving workbook to {output_path}")
         # Ensure parent directories exist
@@ -265,6 +352,13 @@ class ExcelReportGenerator:
         wb.save(output_path)
         logger.info("Report generation complete.")
         summary["success"] = True
+
+        if resume_state is not None:
+            resume_state["current_phase"] = phase
+            resume_state["next_item"] = None
+            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+            save_resume_state(resume_state)
+
         return summary
 
     @staticmethod
