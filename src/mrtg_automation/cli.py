@@ -28,55 +28,55 @@ def run_cli():
     ensure_directories()
     # Setup minimal logging
     setup_logging()
-    
+
     while True:
         print_menu()
         choice = input("Pilih menu (1-6): ").strip()
-        
+
         if choice == '1':
             print("=> Menjalankan mode Scraper...")
             # Note: CLI parses date here, scraper will receive datetime objects
             pass
         elif choice == '2':
             print("=> Menjalankan mode Report Generator...")
-            
+
             print("Pilih mode report:")
             print("1. Image Only")
             print("2. OCR + Image")
             report_choice = input("Pilihan (1/2): ").strip()
-            
+
             if report_choice == '2':
                 from .report.excel import ExcelReportGenerator
                 from .config import Config
                 from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
                 from .shared.logging import setup_ocr_logger
-                
+
                 # Setup OCR logger dynamically
                 setup_ocr_logger()
-                
+
                 print("=> Menjalankan mode Report Generator (OCR + Image)...")
                 date_filter = input("Masukkan tanggal untuk diproses (YYYYMMDD) atau tekan Enter untuk semua tanggal: ").strip()
-                
+
                 if date_filter and (len(date_filter) != 8 or not date_filter.isdigit()):
                     print("[!] Format tanggal harus YYYYMMDD, contoh 20260401")
                     continue
-                
+
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position.txt"
                 list_file = CONFIG_DIR / "list_mrtg_targets.csv"
-                
+
                 template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
                 legacy_template = TEMPLATES_DIR / "MRTG-Monthly-Report.xlsx"
                 if not template_file.exists() and legacy_template.exists():
                     template_file = legacy_template
-                    
+
                 output_file = REPORTS_DIR / "MRTG-Monthly-Report-ocr.xlsx"
-                
+
                 print(f"Template: {template_file}")
                 print(f"Mapping : {mapping_file}")
                 print(f"Data Dir: {DATA_DIR}")
                 if date_filter:
                     print(f"Filter Date: {date_filter}")
-                
+
                 cfg = Config()
                 generator = ExcelReportGenerator(cfg)
                 summary = generator.generate(
@@ -88,7 +88,7 @@ def run_cli():
                     list_file=list_file,
                     date_filter=date_filter if date_filter else None
                 )
-                
+
                 if summary["success"]:
                     print(ExcelReportGenerator.format_summary_table(summary))
                     print("\nReport Summary:")
@@ -103,12 +103,12 @@ def run_cli():
                     print(f"Missing mappings   : {summary['missing_mappings']}")
                     print(f"Failed inserts     : {summary['failed_inserts']}")
                     print(f"Output             : {summary['output_file']}")
-                    
+
                     if summary['review_list']:
                         print("\n[!] TARGETS NEEDING REVIEW (Partial/Fail OCR):")
                         for item in summary['review_list']:
                             print(f" - {item['target_id']} (Tgl: {item['date']}, Sheet: {item['sheet']}) -> {item['status']} (N/A: {item['na_count']})")
-                    
+
                     print("\n[OK] Berhasil membuat report!")
                 else:
                     print("[FAIL] Gagal membuat report. Silakan cek error atau log di output/logs/app.log")
@@ -116,23 +116,23 @@ def run_cli():
                 from .report.excel import ExcelReportGenerator
                 from .config import Config
                 from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
-                
+
                 # Hardcoded defaults for Milestone 2 testing
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
                 list_file = CONFIG_DIR / "list_mrtg_targets.csv"
-                
+
                 template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-image-only.xlsx"
                 legacy_template = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
-                
+
                 if not template_file.exists() and legacy_template.exists():
                     template_file = legacy_template
-                    
+
                 output_file = REPORTS_DIR / "MRTG-Monthly-Report-image-only.xlsx"
-                
+
                 print(f"Template: {template_file}")
                 print(f"Mapping : {mapping_file}")
                 print(f"Data Dir: {DATA_DIR}")
-                
+
                 cfg = Config()
                 generator = ExcelReportGenerator(cfg)
                 summary = generator.generate(
@@ -158,7 +158,7 @@ def run_cli():
                     print("[FAIL] Gagal membuat report. Silakan cek log di output/logs/app.log")
             else:
                 print("[!] Pilihan tidak valid.")
-                
+
         elif choice == '3':
             print("=> Menjalankan Full Pipeline...")
             pass
@@ -168,11 +168,11 @@ def run_cli():
             print("=> Migrating legacy MRTG_<SID>.png to canonical format...")
             from .shared.migration import migrate_legacy_data
             from .shared.paths import DATA_DIR
-            
+
             print("1. Dry Run (Simulasi)")
             print("2. Execute (Ubah nama file beneran)")
             mig_choice = input("Pilihan (1/2): ").strip()
-            
+
             if mig_choice == '1':
                 migrate_legacy_data(DATA_DIR, dry_run=True)
             elif mig_choice == '2':
@@ -202,7 +202,7 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
         except ValueError:
             print(f"[FAIL] Invalid date {date_str}")
             return []
-            
+
     if start_date_str and end_date_str:
         if len(start_date_str) != 8 or not start_date_str.isdigit() or len(end_date_str) != 8 or not end_date_str.isdigit():
             print("[FAIL] Date format must be YYYYMMDD")
@@ -215,11 +215,11 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
         except ValueError as e:
             print(f"[FAIL] Invalid date range: {e}")
             return []
-            
+
     print("[FAIL] You must provide either --date OR both --start-date and --end-date")
     return []
 
-def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None, cancel_event=None) -> int:
+def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None, cancel_event=None, resume_state=None, resume_mode: bool = False) -> int:
     """
     Run scrape-only command for one or more dates.
     """
@@ -229,7 +229,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
     ensure_directories()
     setup_logging()
-    
+
     log_run_boundary("RUN START", f"scrape dates={len(dates)} targets={targets_filter}")
 
     from .shared.paths import CONFIG_DIR
@@ -278,6 +278,11 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         log_run_boundary("RUN END", "scrape exit_code=1 no targets selected")
         return 1
 
+    if resume_state is not None:
+        resume_state["total_items"] = len(items) * len(dates)
+        from .shared.resume_state import save_resume_state
+        save_resume_state(resume_state)
+
     from .scraper.telkomcare import TelkomCareScraper
     scraper = TelkomCareScraper(headless=headless, manual_login_waiter=manual_login_waiter)
 
@@ -298,7 +303,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
         if sid_targets:
             print(f"\nScraping {len(sid_targets)} SID targets across {len(dates)} dates...")
-            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid", cancel_event=cancel_event)
+            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid", cancel_event=cancel_event, resume_state=resume_state, phase="scrape_sid", resume_mode=resume_mode)
             if getattr(scraper, "last_cancelled", False):
                 cancelled = True
                 log_run_boundary("RUN END", "scrape exit_code=130 stopped_by_user")
@@ -307,8 +312,13 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
                 results_all.update(results_sid)
 
         if graphtitle_targets:
+            if resume_state is not None:
+                from .shared.resume_state import save_resume_state
+                resume_state["current_phase"] = "scrape_graphtitle"
+                save_resume_state(resume_state)
+
             print(f"\nScraping {len(graphtitle_targets)} Graph-title targets across {len(dates)} dates...")
-            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle", cancel_event=cancel_event)
+            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle", cancel_event=cancel_event, resume_state=resume_state, phase="scrape_graphtitle", resume_mode=resume_mode)
             if getattr(scraper, "last_cancelled", False):
                 cancelled = True
                 log_run_boundary("RUN END", "scrape exit_code=130 stopped_by_user")
@@ -347,6 +357,13 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         print(f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {total_expected} total")
 
         if failed_count == 0:
+            if resume_state is not None:
+                from .shared.resume_state import save_resume_state
+                # Only set to done if caller is not full pipeline (which we can infer or let full pipeline override)
+                if resume_state.get("operation_mode") == "Scrape":
+                    resume_state["current_phase"] = "done"
+                resume_state["next_item"] = None
+                save_resume_state(resume_state)
             log_run_boundary("RUN END", f"scrape exit_code=0 ok={passed} na={na_count} fail={failed_count}")
             return 0
         log_run_boundary("RUN END", f"scrape exit_code=1 ok={passed} na={na_count} fail={failed_count}")
@@ -399,7 +416,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
 
     if not template_file.exists() and fallback_template.exists():
         template_file = fallback_template
-        
+
     log_run_boundary("RUN START", f"report mode={mode} date_filter={date_filter}")
 
     print("=" * 70)
@@ -470,23 +487,25 @@ def run_full_command(
     start_date_str: str = None,
     end_date_str: str = None,
     manual_login_waiter=None,
-    cancel_event=None
+    cancel_event=None,
+    resume_state=None,
+    resume_mode: bool = False
 ) -> int:
     ensure_directories()
     setup_logging()
-    
+
     dates = parse_cli_dates(date_str, start_date_str, end_date_str)
     if not dates:
         return 1
-        
+
     if targets_filter not in ["image", "ocr", "all"]:
         print("[FAIL] --targets must be one of: image, ocr, all")
         return 1
-        
+
     if report_mode not in ["image", "ocr"]:
         print("[FAIL] --report-mode must be one of: image, ocr")
         return 1
-        
+
     print("=" * 70)
     print("COMMAND: Full Pipeline")
     print(f"Date count: {len(dates)}")
@@ -497,10 +516,10 @@ def run_full_command(
     print(f"Target filter: {targets_filter}")
     print(f"Report mode: {report_mode}")
     print("=" * 70)
-    
+
     log_run_boundary("RUN START", f"full targets={targets_filter} report_mode={report_mode}")
-    
-    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, manual_login_waiter, cancel_event)
+
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, manual_login_waiter, cancel_event, resume_state, resume_mode)
     if scrape_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during scrape.")
         log_run_boundary("RUN END", "full exit_code=130 stopped_during_scrape")
@@ -509,7 +528,12 @@ def run_full_command(
         print("\n[FAIL] Scrape step failed. Report step skipped.")
         log_run_boundary("RUN END", f"full exit_code={scrape_exit_code} (scrape failed)")
         return scrape_exit_code
-        
+
+    if resume_state is not None:
+        from .shared.resume_state import save_resume_state
+        resume_state["current_phase"] = "report_image" if report_mode == "image" else "report_ocr"
+        save_resume_state(resume_state)
+
     report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event)
     if report_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during report.")
@@ -519,7 +543,7 @@ def run_full_command(
         print("\n[FAIL] Report step failed.")
         log_run_boundary("RUN END", f"full exit_code={report_exit_code} (report failed)")
         return report_exit_code
-        
+
     print("\n[OK] Full pipeline completed successfully.")
     log_run_boundary("RUN END", "full exit_code=0")
     return 0

@@ -7,12 +7,16 @@ import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QComboBox, QLineEdit, QCheckBox, QPushButton, QTextEdit,
-    QFormLayout, QGroupBox
+    QFormLayout, QGroupBox, QMessageBox
 )
 from PySide6.QtCore import QThread, Signal, QObject
 
 from mrtg_automation.cli import run_scrape_command, run_report_command, run_full_command
 from mrtg_automation.shared.paths import REPORTS_DIR
+from mrtg_automation.shared.resume_state import (
+    load_resume_state, save_resume_state, clear_resume_state,
+    has_unfinished_resume_state, format_resume_summary
+)
 
 class Worker(QObject):
     log_signal = Signal(str)
@@ -20,7 +24,7 @@ class Worker(QObject):
     manual_login_required = Signal()
 
     def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str,
-                 targets, report_mode, headless):
+                 targets, report_mode, headless, resume_state=None, resume_mode=False):
         super().__init__()
         self.mode = mode
         self.date_mode = date_mode
@@ -30,6 +34,8 @@ class Worker(QObject):
         self.targets = targets
         self.report_mode = report_mode
         self.headless = headless
+        self.resume_state = resume_state
+        self.resume_mode = resume_mode
         self.login_event = threading.Event()
         self.cancel_event = threading.Event()
 
@@ -85,7 +91,9 @@ class Worker(QObject):
                         start_date_str=s_str,
                         end_date_str=e_str,
                         manual_login_waiter=self.wait_for_manual_login_gui,
-                        cancel_event=self.cancel_event
+                        cancel_event=self.cancel_event,
+                        resume_state=self.resume_state,
+                        resume_mode=self.resume_mode
                     )
                 elif self.mode == "Report":
                     exit_code = run_report_command(
@@ -106,7 +114,9 @@ class Worker(QObject):
                         start_date_str=s_str,
                         end_date_str=e_str,
                         manual_login_waiter=self.wait_for_manual_login_gui,
-                        cancel_event=self.cancel_event
+                        cancel_event=self.cancel_event,
+                        resume_state=self.resume_state,
+                        resume_mode=self.resume_mode
                     )
             except Exception as e:
                 self.log_signal.emit(f"[FATAL] {str(e)}")
@@ -126,8 +136,49 @@ class MainWindow(QMainWindow):
 
         self.worker_thread = None
         self.worker = None
+        self.pending_resume_state = None
 
         self.setup_ui()
+        self.check_resume_state()
+
+    def check_resume_state(self):
+        if has_unfinished_resume_state():
+            state = load_resume_state()
+            if not state:
+                return
+
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Unfinished Run Found")
+            msg.setText("An unfinished run was found. What would you like to do?\n\n" + format_resume_summary(state))
+            btn_resume = msg.addButton("Resume", QMessageBox.AcceptRole)
+            btn_new = msg.addButton("Start New", QMessageBox.RejectRole)
+            btn_discard = msg.addButton("Discard", QMessageBox.DestructiveRole)
+            msg.exec()
+
+            if msg.clickedButton() == btn_resume:
+                self.log_message("Resume state loaded. Click Resume to continue.")
+                self.pending_resume_state = state
+                self.mode_cb.setCurrentText(state.get("operation_mode", "Scrape"))
+                self.date_mode_cb.setCurrentText(state.get("date_mode", "Single Date"))
+                if state.get("date_str"):
+                    self.single_date_input.setText(state.get("date_str"))
+                if state.get("start_date_str"):
+                    self.start_date_input.setText(state.get("start_date_str"))
+                if state.get("end_date_str"):
+                    self.end_date_input.setText(state.get("end_date_str"))
+                self.targets_cb.setCurrentText(state.get("targets_filter", "image"))
+                self.report_mode_cb.setCurrentText(state.get("report_mode", "image"))
+                self.run_btn.setText("Resume")
+            elif msg.clickedButton() == btn_new:
+                clear_resume_state()
+                self.log_message("Saved resume state cleared. Ready for a new run.")
+                self.pending_resume_state = None
+                self.run_btn.setText("Run")
+            elif msg.clickedButton() == btn_discard:
+                clear_resume_state()
+                self.log_message("Saved resume state discarded.")
+                self.pending_resume_state = None
+                self.run_btn.setText("Run")
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -248,6 +299,10 @@ class MainWindow(QMainWindow):
         if self.worker:
             self.worker.request_stop()
             self.stop_btn.setEnabled(False)
+            state = load_resume_state()
+            if state:
+                state["status"] = "stopped"
+                save_resume_state(state)
 
     def run_command(self):
         date_mode = self.date_mode_cb.currentText()
@@ -266,6 +321,44 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(True)
         self.log_message("--- Starting Task ---")
 
+        if self.pending_resume_state:
+            state = self.pending_resume_state
+            state["status"] = "running"
+            state["resume_mode"] = True
+            save_resume_state(state)
+            self.run_btn.setText("Run")
+            resume_state = state
+            resume_mode = True
+            self.pending_resume_state = None
+        else:
+            mode_val = self.mode_cb.currentText()
+            phase = "scrape_sid" if mode_val in ("Scrape", "Full Pipeline") else ("report_image" if self.report_mode_cb.currentText() == "image" else "report_ocr")
+
+            dates_for_state = [d_str] if date_mode == "Single Date" else [s_str, e_str]
+
+            state = {
+                "version": 1,
+                "status": "running",
+                "operation_mode": mode_val,
+                "date_mode": date_mode,
+                "date_str": d_str,
+                "start_date_str": s_str,
+                "end_date_str": e_str,
+                "dates": dates_for_state,
+                "targets_filter": self.targets_cb.currentText(),
+                "report_mode": self.report_mode_cb.currentText(),
+                "current_phase": phase,
+                "total_items": 0,
+                "completed_items_count": 0,
+                "last_completed": None,
+                "next_item": None,
+                "completed_items": []
+            }
+            state["resume_mode"] = False
+            save_resume_state(state)
+            resume_state = state
+            resume_mode = False
+
         self.worker_thread = QThread()
         self.worker = Worker(
             mode=self.mode_cb.currentText(),
@@ -275,7 +368,9 @@ class MainWindow(QMainWindow):
             end_date_str=e_str,
             targets=self.targets_cb.currentText(),
             report_mode=self.report_mode_cb.currentText(),
-            headless=self.headless_cb.isChecked()
+            headless=self.headless_cb.isChecked(),
+            resume_state=resume_state,
+            resume_mode=resume_mode
         )
         self.worker.moveToThread(self.worker_thread)
 
@@ -293,8 +388,20 @@ class MainWindow(QMainWindow):
     def on_worker_finished(self, exit_code):
         if exit_code == 130:
             self.log_message("--- Task Stopped by User ---")
+            state = load_resume_state()
+            if state:
+                state["status"] = "stopped"
+                save_resume_state(state)
+        elif exit_code == 0:
+            self.log_message(f"--- Task Finished (Exit code: {exit_code}) ---")
+            clear_resume_state()
         else:
             self.log_message(f"--- Task Finished (Exit code: {exit_code}) ---")
+            state = load_resume_state()
+            if state:
+                state["status"] = "stopped"
+                save_resume_state(state)
+
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.continue_login_btn.setEnabled(False)

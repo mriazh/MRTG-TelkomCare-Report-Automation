@@ -23,6 +23,7 @@ TEMPLATES_DIR = ROOT_DIR / "templates"
 OUTPUT_DIR = ROOT_DIR / "output"
 REPORTS_DIR = OUTPUT_DIR / "reports"
 LOGS_DIR = OUTPUT_DIR / "logs"
+STATE_DIR = OUTPUT_DIR / "state"
 
 # Debug directory
 SCREENSHOTS_DEBUG_DIR = OUTPUT_DIR / "screenshots"
@@ -35,6 +36,7 @@ def ensure_directories():
         TEMPLATES_DIR,
         REPORTS_DIR,
         LOGS_DIR,
+        STATE_DIR,
         SCREENSHOTS_DEBUG_DIR
     ]
     for d in dirs:
