@@ -30,19 +30,24 @@ class TelkomCareScraper:
     """
 
     def __init__(self, config=None, profile_dir: str = None, headless: bool = True,
-                 base_url: str = 'http://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', manual_login_waiter=None):
+                 base_url: str = 'http://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', manual_login_waiter=None, cancel_event=None):
         self.config = config
         self.base_url = base_url
         self.headless = headless
+        self.cancel_event = cancel_event
         self.session = SessionManager(
             profile_dir=profile_dir,
             headless=headless,
             base_url=base_url,
-            manual_login_waiter=manual_login_waiter
+            manual_login_waiter=manual_login_waiter,
+            cancel_event=cancel_event
         )
         self.last_statuses = {}
         self._logged_in = False
         self.last_cancelled = False
+
+    def _is_cancelled(self):
+        return self.cancel_event is not None and self.cancel_event.is_set()
 
     def login(self) -> bool:
         """Establish login session. Tries saved cookies first, then manual login.
@@ -58,23 +63,60 @@ class TelkomCareScraper:
         Returns True if logged in (or login just completed), False on error.
         """
         try:
+            self.last_cancelled = False
+            if self._is_cancelled():
+                self.last_cancelled = True
+                logger.warning("[STOP] Login cancelled by user.")
+                return False
+
             logger.info("Starting login flow...")
             self.session.start()
+            if self._is_cancelled():
+                self.last_cancelled = True
+                logger.warning("[STOP] Login cancelled by user.")
+                return False
+
+            if not self.session.driver:
+                return False
+
+            if self._is_cancelled():
+                self.last_cancelled = True
+                logger.warning("[STOP] Login cancelled by user.")
+                return False
 
             # Navigate to base URL - profile cookies from user-data-dir handle persistence
             self.session.driver.get(self.base_url)
 
             # Give page time to load
             import time
-            time.sleep(2)
+            for _ in range(10):
+                if self._is_cancelled():
+                    self.last_cancelled = True
+                    logger.warning("[STOP] Login cancelled by user.")
+                    return False
+                time.sleep(0.2)
 
             if self.session.is_logged_in():
                 logger.info("Session valid (cookies from Chrome profile)")
                 self._logged_in = True
                 return True
 
+            if self._is_cancelled():
+                self.last_cancelled = True
+                logger.warning("[STOP] Login cancelled by user.")
+                return False
+
             logger.info("Session expired or first run - manual login required")
-            self.session.wait_for_manual_login()
+            if not self.session.wait_for_manual_login():
+                if self._is_cancelled():
+                    self.last_cancelled = True
+                    logger.warning("[STOP] Login cancelled by user.")
+                return False
+
+            if self._is_cancelled():
+                self.last_cancelled = True
+                logger.warning("[STOP] Login cancelled by user.")
+                return False
 
             # After manual login, verify it worked
             if self.session.is_logged_in():

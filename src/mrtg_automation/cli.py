@@ -284,15 +284,14 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         save_resume_state(resume_state)
 
     from .scraper.telkomcare import TelkomCareScraper
-    scraper = TelkomCareScraper(headless=headless, manual_login_waiter=manual_login_waiter)
+    scraper = TelkomCareScraper(headless=headless, manual_login_waiter=manual_login_waiter, cancel_event=cancel_event)
 
     cancelled = False
     try:
         print("Logging in...")
         if not scraper.login():
-            if cancel_event is not None and cancel_event.is_set():
-                cancelled = True
-                print("[STOP] Scrape stopped during manual login.")
+            if (cancel_event is not None and cancel_event.is_set()) or getattr(scraper, "last_cancelled", False):
+                print("[STOP] Scrape stopped during login.")
                 log_run_boundary("RUN END", "scrape exit_code=130 stopped_during_login")
                 return 130
             print("[FAIL] Login failed")

@@ -24,19 +24,23 @@ COOKIE_FILE_NAME = 'cookies.json'
 
 class SessionManager:
     """Manages a persistent Chrome session with TelkomCare.
-    
+
     Profile dir: ~/.mrtg-scraper-profile (or override via profile_dir arg)
     Headless: True by default, but auto-detects login redirect and switches
               to non-headless if user needs to solve captcha + MFA.
     """
-    
-    def __init__(self, profile_dir: str = None, headless: bool = True, base_url: str = 'http://telkomcare.telkom.co.id', manual_login_waiter=None):
+
+    def __init__(self, profile_dir: str = None, headless: bool = True, base_url: str = 'http://telkomcare.telkom.co.id', manual_login_waiter=None, cancel_event=None):
         self.profile_dir = Path(profile_dir) if profile_dir else Path.home() / '.mrtg-scraper-profile'
         self.headless = headless
         self.base_url = base_url
         self.driver = None
         self.manual_login_waiter = manual_login_waiter
-    
+        self.cancel_event = cancel_event
+
+    def _is_cancelled(self):
+        return self.cancel_event is not None and self.cancel_event.is_set()
+
     def _build_options(self) -> Options:
         opts = Options()
         if self.headless:
@@ -47,34 +51,37 @@ class SessionManager:
         opts.add_argument('--window-size=1920,1080')
         opts.add_experimental_option('excludeSwitches', ['enable-logging'])
         return opts
-    
-    def start(self) -> None:
+
+    def start(self) -> bool:
         """Launch Chrome with persistent profile. Idempotent (no-op if already started)."""
+        if self._is_cancelled(): return False
+
         if self.driver is not None:
             logger.debug("SessionManager.start() called but already running")
-            return
-        
+            return True
+
         # Ensure profile dir exists
         self.profile_dir.mkdir(parents=True, exist_ok=True)
-        
+
         opts = self._build_options()
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=opts)
         logger.info(f"Chrome started with profile: {self.profile_dir}")
-    
+        return True
+
     def is_logged_in(self) -> bool:
         """Check if current page is dashboard (not login).
-        
+
         Uses two-layer detection:
         1. URL pattern (fast, primary)
         2. Page content check (fallback, more reliable)
-        
+
         Returns True if on dashboard, False if on login or driver not started.
         """
         if self.driver is None:
             return False
         current_url = self.driver.current_url.lower()
-        
+
         # Layer 1: URL pattern check
         is_login = any(p in current_url for p in LOGIN_URL_PATTERNS)
         if is_login:
@@ -85,7 +92,7 @@ class SessionManager:
         )
         if is_dashboard:
             return True
-        
+
         # Layer 2: Page content check (fallback)
         # If URL doesn't clearly match, check page content for login indicators
         try:
@@ -96,12 +103,12 @@ class SessionManager:
                 return True
         except Exception:
             pass
-        
+
         return False
-    
+
     def save_cookies(self) -> bool:
         """Export all cookies to JSON file for session persistence.
-        
+
         Returns True if saved successfully, False on error.
         """
         if self.driver is None:
@@ -120,7 +127,7 @@ class SessionManager:
 
     def load_cookies(self) -> bool:
         """Import cookies from JSON file. Must navigate to domain first.
-        
+
         Returns True if cookies loaded and applied, False on error or no file.
         """
         cookie_path = self.profile_dir / COOKIE_FILE_NAME
@@ -133,13 +140,13 @@ class SessionManager:
             if not cookies:
                 logger.info("Cookie file is empty")
                 return False
-            
+
             # Navigate to base domain first (required for add_cookie)
             self.driver.get(self.base_url)
-            
+
             # Clear existing cookies to avoid duplicates
             self.driver.delete_all_cookies()
-            
+
             # Add saved cookies
             loaded = 0
             for cookie in cookies:
@@ -156,30 +163,35 @@ class SessionManager:
                     loaded += 1
                 except Exception as e:
                     logger.debug(f"Skipping cookie {cookie.get('name', '?')}: {e}")
-            
+
             logger.info(f"Loaded {loaded}/{len(cookies)} cookies from {cookie_path}")
             return loaded > 0
         except Exception as e:
             logger.error(f"Failed to load cookies: {e}")
             return False
 
-    def wait_for_manual_login(self) -> None:
+    def wait_for_manual_login(self) -> bool:
         """Switch to non-headless mode and pause for user to login.
-        
+
         If currently headless, restart browser in non-headless mode.
         Prints prompt, waits for user to press Enter after solving captcha + MFA.
         """
+        if self._is_cancelled(): return False
+
         if self.driver is not None and self.headless:
             # Need to restart in non-headless mode
             self.close()
-        
+
         # Switch off headless for this session
         original_headless = self.headless
         self.headless = False
-        
+
         try:
+            if self._is_cancelled(): return False
             self.start()
+            if self._is_cancelled(): return False
             self.driver.get(self.base_url)
+            if self._is_cancelled(): return False
             print("\n" + "=" * 70)
             print("MANUAL LOGIN REQUIRED")
             print("=" * 70)
@@ -193,15 +205,20 @@ class SessionManager:
             print("8. Come back here and press Enter to continue")
             print("=" * 70)
             if self.manual_login_waiter is not None:
-                self.manual_login_waiter()
+                result = self.manual_login_waiter()
+                if result is False or self._is_cancelled():
+                    print("[STOP] Manual login cancelled by user.")
+                    return False
             else:
                 input("\nPress Enter after login is complete and dashboard is visible...")
+                if self._is_cancelled(): return False
             logger.info("User completed manual login")
+            return True
         finally:
             # Keep headless=False until next start() call, but allow
             # subsequent calls to use original headless setting
             self.headless = original_headless
-    
+
     def close(self) -> None:
         """Quit browser and release resources. Idempotent."""
         if self.driver is not None:
@@ -214,11 +231,11 @@ class SessionManager:
                 logger.warning(f"Error quitting browser: {e}")
             self.driver = None
             logger.debug("Chrome closed")
-    
+
     def __enter__(self):
         self.start()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False

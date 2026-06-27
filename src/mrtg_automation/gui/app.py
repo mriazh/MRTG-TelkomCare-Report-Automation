@@ -49,7 +49,7 @@ class Worker(QObject):
     def request_stop(self):
         self.cancel_event.set()
         self.login_event.set()
-        self.log_signal.emit("Stop requested. Waiting for current item to finish...")
+        self.log_signal.emit("Stop requested. Cancelling startup/login or waiting for current item to finish...")
 
     def wait_for_manual_login_gui(self):
         self.log_signal.emit("MANUAL LOGIN REQUIRED")
@@ -60,6 +60,11 @@ class Worker(QObject):
         while not self.cancel_event.is_set():
             if self.login_event.wait(0.2):
                 break
+
+        if self.cancel_event.is_set():
+            self.log_signal.emit("Manual login cancelled by user.")
+            return False
+        return True
 
     def run(self):
         class StreamRedirector(io.StringIO):
