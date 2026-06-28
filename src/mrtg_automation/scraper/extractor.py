@@ -3,7 +3,6 @@ Graph Extractor for TelkomCare MRTG portal.
 """
 import logging
 import time
-import re
 from pathlib import Path
 from PIL import Image
 from selenium.webdriver.common.by import By
@@ -44,7 +43,7 @@ class GraphExtractor:
             menu = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[@data-id='2']")))
             menu.click()
             time.sleep(1)
-            
+
             # Click submenu based on mode
             if self.mode == 'sid':
                 submenu = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/mrtgnetcare2/graph/monitoring')]")))
@@ -67,7 +66,7 @@ class GraphExtractor:
             input_elem.send_keys(target_id)
             input_elem.send_keys(Keys.ENTER)
             time.sleep(2)
-            
+
             btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a.btn-graph")))
             self.driver.execute_script("arguments[0].scrollIntoView(true);", btn)
             self.driver.execute_script("arguments[0].click();", btn)
@@ -89,7 +88,7 @@ class GraphExtractor:
             wait = WebDriverWait(self.driver, 10)
             start_str = date_obj.strftime("%d/%m/%Y 00:00")
             end_str = date_obj.strftime("%d/%m/%Y 23:55")
-            
+
             if self.mode == 'sid':
                 filter_btn = wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(normalize-space(), 'Filter')]")))
                 inputs = self.driver.find_elements(By.XPATH, "//button[contains(normalize-space(), 'Filter')]/preceding::input[not(@type='hidden')]")
@@ -106,7 +105,7 @@ class GraphExtractor:
                 start_input = wait.until(EC.presence_of_element_located((By.ID, "startdate")))
                 end_input = wait.until(EC.presence_of_element_located((By.ID, "enddate")))
                 btn = wait.until(EC.element_to_be_clickable((By.ID, "graphfilter")))
-            
+
                 self.driver.execute_script(
                     "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
                     start_input,
@@ -209,13 +208,13 @@ class GraphExtractor:
                 }
             }
         }
-        
+
         window._target_original_cssText = target.style.cssText;
         target.style.setProperty('position', 'fixed', 'important');
         target.style.setProperty('top', '0', 'important');
         target.style.setProperty('left', '0', 'important');
         target.style.setProperty('z-index', '99999999', 'important');
-        
+
         var naturalWidth = target.naturalWidth || target.width || target.clientWidth;
         var naturalHeight = target.naturalHeight || target.height || target.clientHeight;
         target.style.setProperty('width', naturalWidth + 'px', 'important');
@@ -224,10 +223,10 @@ class GraphExtractor:
         target.style.setProperty('max-height', 'none', 'important');
         target.style.setProperty('object-fit', 'fill', 'important');
         target.style.setProperty('transform', 'none', 'important');
-        
+
         target.style.setProperty('margin', '0', 'important');
         target.style.setProperty('padding', '0', 'important');
-        
+
         window._body_original_cssText = document.body.style.cssText;
         window._html_original_cssText = document.documentElement.style.cssText;
         document.body.style.setProperty('background', '#ffffff', 'important');
@@ -363,13 +362,12 @@ class GraphExtractor:
                 isolated = True
                 time.sleep(3)
 
-                date_str = date_obj.strftime('%Y%m%d')
-                output_dir = Path('data/MRTG-Data') / date_str
+                from mrtg_automation.shared.filenames import get_screenshot_path
+                final_file = get_screenshot_path(target_id, date_obj)
+                output_dir = final_file.parent
                 output_dir.mkdir(parents=True, exist_ok=True)
 
-                safe_target = re.sub(r'[\\/*?:"<>|]', '_', target_id)
-                temp_file = output_dir / f"temp_{safe_target}_{date_str}.png"
-                final_file = output_dir / f"MRTG_{safe_target}_{date_str}.png"
+                temp_file = output_dir / f"temp_{final_file.name}"
 
                 img_el.screenshot(str(temp_file))
 
@@ -378,7 +376,7 @@ class GraphExtractor:
                     self.last_status = "ok"
                     self.last_error = None
                     return final_file
-                
+
                 temp_file.unlink(missing_ok=True)
                 if attempt < 3:
                     logger.warning(

@@ -35,25 +35,29 @@ Run the CLI menu:
 python -m mrtg_automation
 ```
 
-## Build Windows EXE
+## Build / Release
 To build a standalone executable for Windows:
 
 > [!IMPORTANT]
-> Local credentials in `config/.env` and target lists like `config/SID-MRTG.txt` are intentionally **not bundled** into the release output to prevent leaking secrets. After building, you must copy `config/.env.example` to `config/.env` in the output folder and provide your credentials before scraping.
+> Local credentials in `config/.env` and target lists like `config/SID-MRTG.txt` are intentionally **not bundled** into the release output to prevent leaking secrets. After extracting or installing, you must copy `config/.env.example` to `config/.env` in the config folder and provide your credentials before scraping.
 
-1. Ensure your `.venv312` is activated and dependencies are installed explicitly:
+1. Install prerequisites:
    ```powershell
    .venv312\Scripts\python -m pip install -e .[gui,ocr]
-   ```
-2. Install PyInstaller if you haven't already:
-   ```powershell
    .venv312\Scripts\python -m pip install pyinstaller
    ```
-3. Run the build script:
+2. Build EXE:
    ```powershell
    .\scripts\build_exe.ps1 -Clean
    ```
-4. Find the executable at `dist\MRTG-TelkomCare\MRTG-TelkomCare.exe`.
+3. Build portable ZIP (outputs to `release\MRTG-TelkomCare-v1.0.0-portable.zip`):
+   ```powershell
+   .\scripts\package_portable.ps1
+   ```
+4. Build installer (outputs to `release\MRTG-TelkomCare-Setup-v1.0.0.exe`, requires [Inno Setup 6](https://jrsoftware.org/isinfo.php)):
+   ```powershell
+   .\scripts\build_installer.ps1
+   ```
 
 ## Deprecation Notice
 This repository merges and deprecates the following legacy projects:

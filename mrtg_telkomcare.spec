@@ -1,24 +1,44 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files, copy_metadata, collect_dynamic_libs
 
 block_cipher = None
+
+hidden_imports = [
+    'PySide6.QtCore',
+    'PySide6.QtGui',
+    'PySide6.QtWidgets',
+    'openpyxl',
+    'PIL'
+]
+hidden_imports += collect_submodules('selenium')
+hidden_imports += collect_submodules('webdriver_manager')
+hidden_imports += collect_submodules('paddleocr')
+hidden_imports += collect_submodules('paddlex')
+
+# Add required OCR runtime submodules
+for mod in ['imagesize', 'cv2', 'pyclipper', 'pypdfium2', 'bidi', 'shapely']:
+    hidden_imports += collect_submodules(mod)
+
+datas = []
+datas += collect_data_files('paddleocr')
+datas += collect_data_files('paddlex')
+datas.append(('.venv312/Lib/site-packages/paddlex/configs', 'paddlex/configs'))
+
+# Add metadata for Paddlex and its dependencies so runtime version checks pass
+for pkg in ['paddlex', 'paddleocr', 'imagesize', 'opencv-contrib-python', 'pyclipper', 'pypdfium2', 'python-bidi', 'shapely']:
+    datas += copy_metadata(pkg)
+
+binaries = []
+binaries += collect_dynamic_libs('paddle')
 
 a = Analysis(
     ['gui_launcher.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[
-        'PySide6.QtCore',
-        'PySide6.QtGui',
-        'PySide6.QtWidgets',
-        'openpyxl',
-        'selenium',
-        'PIL',
-        'webdriver_manager.chrome',
-        'paddleocr'
-    ],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

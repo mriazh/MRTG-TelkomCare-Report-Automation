@@ -173,8 +173,6 @@ class TelkomCareScraper:
 
         for date_obj in dates:
             date_str = date_obj.strftime('%Y%m%d')
-            output_dir = Path('data/MRTG-Data') / date_str
-            output_dir.mkdir(parents=True, exist_ok=True)
 
             for target in targets:
                 key = make_item_key(phase, mode, date_str, target)

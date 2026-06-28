@@ -1,7 +1,7 @@
 from .shared.paths import LOGS_DIR
 
 APP_NAME = "MRTG TelkomCare Report Automation"
-APP_VERSION = "0.1.0"
+APP_VERSION = "1.0.0"
 APP_BUILD_DATE = "2026"
 GITHUB_REPO = "mriazh/MRTG-TelkomCare-Report-Automation"
 RELEASES_URL = "https://github.com/mriazh/MRTG-TelkomCare-Report-Automation/releases"

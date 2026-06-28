@@ -40,3 +40,4 @@ build/
 !mrtg_telkomcare.spec
 *.egg-info/
 src/*.egg-info/
+release/
