@@ -6,7 +6,15 @@ This application provides a seamless GUI and CLI experience for operators who ne
 
 ---
 
-## 📥 Recommended Download
+## 💻 Platform Support
+
+- **Windows**: Fully supported via pre-packaged releases.
+- **Debian / Linux**: Experimental (Source-only). The Windows installer and Portable ZIP will not work on Linux. Must be run directly from Python source.
+- **Note on Scraping**: Because TelkomCare requires manual login (due to Captcha/MFA), running the GUI or scraping commands requires a visible desktop session, VNC, or X forwarding. Headless mode without a display is not supported for the login phase.
+
+---
+
+## 📥 Recommended Download (Windows Only)
 
 For Windows users, we provide two ready-to-use distribution formats in the releases page:
 
@@ -22,7 +30,7 @@ For Windows users, we provide two ready-to-use distribution formats in the relea
 > [!IMPORTANT]
 > For your security, releases **do not** include your environment-specific settings or network target lists. You must set these up locally the first time you run the app.
 
-1. **Install or Extract** the release artifact to your desired location.
+1. **Install / Clone**: After installing/extracting the Windows release or cloning the source repository, navigate to the project folder.
 2. Navigate to the `config` folder.
 3. **Set up your runtime settings**:
    - Copy `config/.env.example` and rename the copy to `config/.env`.
@@ -70,6 +78,49 @@ When you run the automation, your local files will be neatly organized into the 
 **Never commit or share your `config/.env` or private target list (`config/list_mrtg_targets.csv`)!**
 
 To protect you, our automated build scripts validate the release packages before they are distributed. The release pipeline explicitly verifies that no local configuration files, scraped data, logs, reports, or state files are accidentally bundled into the public installer or portable ZIP.
+
+---
+
+## 🐧 Debian / Linux Setup (Experimental)
+
+Linux users must run the application directly from source. This platform is not yet fully tested or supported.
+
+**Prerequisites:**
+- Python 3.12 (specifically 3.12) and `venv` support
+- Google Chrome
+- Visible desktop session, VNC, or X forwarding for manual TelkomCare login
+
+Assuming you have cloned the repository and are currently in the project root directory, run the following:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e ".[gui,ocr]"
+cp config/.env.example config/.env
+```
+
+After configuring your `.env` and `list_mrtg_targets.csv`, launch the GUI:
+```bash
+python -m mrtg_automation gui
+```
+
+---
+
+## 💻 CLI Usage Examples
+
+You can run the pipeline strictly from the command line:
+
+```bash
+# Scrape all targets for a specific date
+python -m mrtg_automation scrape --date YYYYMMDD --targets all
+
+# Generate an OCR report for previously scraped data
+python -m mrtg_automation report --mode ocr --date YYYYMMDD
+
+# Run the full pipeline (scrape -> report) sequentially
+python -m mrtg_automation full --date YYYYMMDD --targets all --report-mode ocr
+```
 
 ---
 
