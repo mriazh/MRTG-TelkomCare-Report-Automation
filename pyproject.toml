@@ -13,7 +13,8 @@ dependencies = [
     "openpyxl",
     "selenium",
     "webdriver-manager",
-    "Pillow"
+    "Pillow",
+    "pyotp"
 ]
 
 [project.optional-dependencies]

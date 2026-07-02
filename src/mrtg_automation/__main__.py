@@ -40,37 +40,41 @@ def main():
     if getattr(args, 'no_images', False):
         os.environ["INSERT_IMAGES"] = "False"
         
-    if args.command == "scrape":
-        exit_code = run_scrape_command(args.date, args.targets, args.headless, getattr(args, 'start_date', None), getattr(args, 'end_date', None))
-        sys.exit(exit_code)
-    elif args.command == "report":
-        exit_code = run_report_command(args.mode, args.date, getattr(args, 'no_images', False), getattr(args, 'start_date', None), getattr(args, 'end_date', None))
-        sys.exit(exit_code)
-    elif args.command == "full":
-        from .cli import run_full_command
-        exit_code = run_full_command(
-            date_str=args.date,
-            targets_filter=args.targets,
-            report_mode=args.report_mode,
-            headless=args.headless,
-            no_images=getattr(args, "no_images", False),
-            start_date_str=getattr(args, 'start_date', None),
-            end_date_str=getattr(args, 'end_date', None)
-        )
-        sys.exit(exit_code)
-    elif args.command == "gui":
-        from .gui.app import main as gui_main
-        gui_main()
-        sys.exit(0)
-        
     try:
-        run_cli()
+        if args.command == "scrape":
+            exit_code = run_scrape_command(args.date, args.targets, args.headless, getattr(args, 'start_date', None), getattr(args, 'end_date', None))
+            sys.exit(exit_code)
+        elif args.command == "report":
+            exit_code = run_report_command(args.mode, args.date, getattr(args, 'no_images', False), getattr(args, 'start_date', None), getattr(args, 'end_date', None))
+            sys.exit(exit_code)
+        elif args.command == "full":
+            from .cli import run_full_command
+            exit_code = run_full_command(
+                date_str=args.date,
+                targets_filter=args.targets,
+                report_mode=args.report_mode,
+                headless=args.headless,
+                no_images=getattr(args, "no_images", False),
+                start_date_str=getattr(args, 'start_date', None),
+                end_date_str=getattr(args, 'end_date', None)
+            )
+            sys.exit(exit_code)
+        elif args.command == "gui":
+            from .gui.app import main as gui_main
+            gui_main()
+            sys.exit(0)
+
+        try:
+            run_cli()
+        except KeyboardInterrupt:
+            print("\nExiting program.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n[FATAL ERROR] Application crashed: {str(e)}")
+            sys.exit(1)
     except KeyboardInterrupt:
-        print("\nExiting program.")
-        sys.exit(0)
-    except Exception as e:
-        print(f"\n[FATAL ERROR] Application crashed: {str(e)}")
-        sys.exit(1)
+        print("\n[STOP] Task cancelled by user.")
+        sys.exit(130)
 
 if __name__ == '__main__':
     main()

@@ -36,6 +36,7 @@ class TelkomCareScraper:
         self.headless = headless
         self.cancel_event = cancel_event
         self.session = SessionManager(
+            config=self.config,
             profile_dir=profile_dir,
             headless=headless,
             base_url=base_url,
@@ -106,6 +107,11 @@ class TelkomCareScraper:
                 logger.warning("[STOP] Login cancelled by user.")
                 return False
 
+            # Try auto-login first if configured
+            if self.session.auto_login():
+                self._logged_in = True
+                return True
+
             logger.info("Session expired or first run - manual login required")
             if not self.session.wait_for_manual_login():
                 if self._is_cancelled():
@@ -171,6 +177,8 @@ class TelkomCareScraper:
                 resume_state["total_items"] = total_items
             save_resume_state(resume_state)
 
+        consecutive_failures = 0
+
         for date_obj in dates:
             date_str = date_obj.strftime('%Y%m%d')
 
@@ -231,78 +239,107 @@ class TelkomCareScraper:
                         continue
 
                 current_index += 1
-                try:
-                    prog_msg = f"[PROGRESS] {mode} {current_index}/{total_items} date={date_str} target={target} starting"
-                    print(prog_msg)
-                    logger.info(prog_msg)
+                while True:
+                    try:
+                        prog_msg = f"[PROGRESS] {mode} {current_index}/{total_items} date={date_str} target={target} starting"
+                        print(prog_msg)
+                        logger.info(prog_msg)
 
-                    filepath = extractor.capture_graph(target, date_obj)
+                        filepath = extractor.capture_graph(target, date_obj)
 
-                    status_info = {
-                        "status": getattr(extractor, 'last_status', None) or ("ok" if filepath else "error"),
-                        "error": getattr(extractor, 'last_error', None),
-                    }
-                    self.last_statuses[(target, date_obj)] = status_info
+                        status_info = {
+                            "status": getattr(extractor, 'last_status', None) or ("ok" if filepath else "error"),
+                            "error": getattr(extractor, 'last_error', None),
+                        }
 
-                    if filepath:
-                        norm_status = "ok"
-                        msg = f"[OK] {mode} {current_index}/{total_items} date={date_str} target={target} saved={filepath}"
-                        print(msg)
-                        logger.info(msg)
-                        if target not in results:
-                            results[target] = {}
-                        results[target][date_obj] = str(filepath)
-                    elif status_info.get("status") == "no_graph":
-                        norm_status = "no_graph"
-                        msg = f"[N/A] {mode} {current_index}/{total_items} date={date_str} target={target} no graph"
-                        print(msg)
-                        logger.info(msg)
-                    else:
-                        norm_status = "error"
-                        err = status_info.get("error") or "unknown"
-                        msg = f"[FAIL] {mode} {current_index}/{total_items} date={date_str} target={target} error={err}"
+                        if not filepath and status_info.get("status") != "no_graph":
+                            consecutive_failures += 1
+                            if consecutive_failures >= 3:
+                                logger.warning(f"3 consecutive failures (latest: {target}). Session likely expired. Forcing re-login.")
+                                print(f"\n[WARNING] TelkomCare session may have expired. Requesting manual re-login...")
+                                if self.session.wait_for_manual_login():
+                                    consecutive_failures = 0
+                                    print(f"\n[INFO] Session restored. Retrying target {target}...")
+                                    continue
+                                else:
+                                    print("[FAIL] Re-login failed or cancelled. Stopping scrape.")
+                                    self.last_cancelled = True
+                                    break
+                        else:
+                            consecutive_failures = 0
+
+                        self.last_statuses[(target, date_obj)] = status_info
+
+                        if filepath:
+                            norm_status = "ok"
+                            msg = f"[OK] {mode} {current_index}/{total_items} date={date_str} target={target} saved={filepath}"
+                            print(msg)
+                            logger.info(msg)
+                            if target not in results:
+                                results[target] = {}
+                            results[target][date_obj] = str(filepath)
+                        elif status_info.get("status") == "no_graph":
+                            norm_status = "no_graph"
+                            msg = f"[N/A] {mode} {current_index}/{total_items} date={date_str} target={target} no graph"
+                            print(msg)
+                            logger.info(msg)
+                        else:
+                            norm_status = "error"
+                            err = status_info.get("error") or "unknown"
+                            msg = f"[FAIL] {mode} {current_index}/{total_items} date={date_str} target={target} error={err}"
+                            print(msg)
+                            logger.error(msg)
+
+                        if progress_callback:
+                            progress_callback(target, date_obj, filepath is not None)
+
+                        if resume_state is not None:
+                            item = {
+                                "phase": phase,
+                                "mode": mode,
+                                "date": date_str,
+                                "target": target,
+                                "status": norm_status,
+                                "error": status_info.get("error"),
+                                "path": str(filepath) if filepath else None,
+                                "key": key
+                            }
+                            if norm_status != "error":
+                                mark_item_completed(resume_state, item)
+                                completed_keys.add(key)
+                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                            save_resume_state(resume_state)
+
+                        break  # Target completed (success or final failure without relogin)
+                    except Exception as e:
+                        msg = f"[FAIL] {mode} {current_index}/{total_items} date={date_str} target={target} error={e}"
                         print(msg)
                         logger.error(msg)
+                        results.setdefault(target, {})[date_obj] = None
 
-                    if progress_callback:
-                        progress_callback(target, date_obj, filepath is not None)
+                        if resume_state is not None:
+                            item = {
+                                "phase": phase,
+                                "mode": mode,
+                                "date": date_str,
+                                "target": target,
+                                "status": "error",
+                                "error": str(e),
+                                "path": None,
+                                "key": key
+                            }
+                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                            save_resume_state(resume_state)
 
+                        break
+
+                        break  # Exit while loop on unexpected exception
+
+                if self.last_cancelled:
                     if resume_state is not None:
-                        item = {
-                            "phase": phase,
-                            "mode": mode,
-                            "date": date_str,
-                            "target": target,
-                            "status": norm_status,
-                            "error": status_info.get("error"),
-                            "path": str(filepath) if filepath else None,
-                            "key": key
-                        }
-                        mark_item_completed(resume_state, item)
-                        resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                        resume_state["status"] = "stopped"
                         save_resume_state(resume_state)
-                        completed_keys.add(key)
-                except Exception as e:
-                    msg = f"[FAIL] {mode} {current_index}/{total_items} date={date_str} target={target} error={e}"
-                    print(msg)
-                    logger.error(msg)
-                    results.setdefault(target, {})[date_obj] = None
-
-                    if resume_state is not None:
-                        item = {
-                            "phase": phase,
-                            "mode": mode,
-                            "date": date_str,
-                            "target": target,
-                            "status": "error",
-                            "error": str(e),
-                            "path": None,
-                            "key": key
-                        }
-                        mark_item_completed(resume_state, item)
-                        resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
-                        save_resume_state(resume_state)
-                        completed_keys.add(key)
+                    return results
 
         if resume_state is not None:
             resume_state["current_phase"] = phase

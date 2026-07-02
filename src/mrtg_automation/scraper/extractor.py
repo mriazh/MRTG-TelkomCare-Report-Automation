@@ -79,6 +79,9 @@ class GraphExtractor:
             self.dismiss_alert_if_present()
             logger.warning(f"input_target alert dismissed for {target_id}: {e}")
             return False
+        except (StaleElementReferenceException, TimeoutException):
+            logger.warning(f"input_target DOM error for {target_id}, re-raising for retry")
+            raise
         except Exception as e:
             logger.error(f"input_target error: {e}")
             return False
@@ -330,6 +333,8 @@ class GraphExtractor:
                 if not self.input_target(target_id):
                     if attempt < 3:
                         logger.warning(f"input_target failed for {target_id}, retrying attempt {attempt + 1}/3")
+                        self.recover_graph_page()
+                        time.sleep(2)
                         continue
                     self.last_status = "error"
                     self.last_error = "input_target failed"
@@ -339,6 +344,8 @@ class GraphExtractor:
                 if not self.set_date_filter(date_obj):
                     if attempt < 3:
                         logger.warning(f"set_date_filter failed for {target_id}, retrying attempt {attempt + 1}/3")
+                        self.recover_graph_page()
+                        time.sleep(2)
                         continue
                     self.last_status = "error"
                     self.last_error = "set_date_filter failed"
@@ -397,8 +404,11 @@ class GraphExtractor:
                 logger.error(f"Invalid graph capture for {target_id} after 3 attempts")
                 return None
 
-            except StaleElementReferenceException as e:
-                logger.warning(f"Stale graph element for {target_id} on attempt {attempt}/3: {e}")
+            except (StaleElementReferenceException, TimeoutException) as error:
+                logger.warning(f"DOM error for {target_id} at attempt {attempt}/3: {error}")
+                if attempt < 3:
+                    self.recover_graph_page()
+                    time.sleep(2)
                 continue
             except UnexpectedAlertPresentException as e:
                 self.dismiss_alert_if_present()
