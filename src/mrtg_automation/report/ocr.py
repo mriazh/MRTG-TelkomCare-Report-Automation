@@ -2,8 +2,12 @@ import os
 import sys
 import re
 import logging
+import json
 from pathlib import Path
 import contextlib
+from typing import Optional, Any
+from mrtg_automation.config import Config
+from mrtg_automation.report.gemini_ocr import GeminiLegendExtractor
 
 logger = logging.getLogger('mrtg_automation.ocr')
 
@@ -87,149 +91,156 @@ class OCRExtractor:
 
     @classmethod
     def extract_mrtg_values(cls, image_path: Path, progress_callback=None) -> dict:
-        """
-        Extract numerical values from an MRTG graph screenshot using PaddleOCR.
-        """
+        """Extract numerical values from an MRTG graph screenshot."""
+        from mrtg_automation.config import Config
+        return cls.extract_mrtg_values_with_metadata(image_path, Config(), progress_callback)["values"]
+
+    @classmethod
+    def extract_mrtg_values_with_metadata(cls, image_path: Path, config: Config, progress_callback=None) -> dict[str, Any]:
+        """Extract numerical values from an MRTG graph screenshot using PaddleOCR + Gemini fallback."""
+
+        # Safe default metadata
+        result = {
+            "values": {}, "engine_used": "Paddle (Fallback)", "decision_reason": "both_incomplete",
+            "paddle_confidence": 0.0, "paddle_values": {}, "gemini_values": {},
+            "gemini_model": "", "paddle_complete": False, "gemini_complete": False
+        }
+
+        # 1. PaddleOCR
+        paddle_values = {}
+        paddle_complete = False
+        paddle_confidence = 0.0
         try:
-            if progress_callback:
-                progress_callback("start", image_path.name)
-            
+            if progress_callback: progress_callback("start", image_path.name)
             ocr = cls._get_engine()
-        except ImportError:
-            # Re-raise to be handled gracefully
-            raise
 
-        logger.debug(f"--- START OCR [{image_path.name}] ---")
-        try:
-            # Predict
-            result_iter = None
-            if hasattr(ocr, 'predict'):
-                result_iter = ocr.predict(str(image_path))
-            elif hasattr(ocr, 'ocr'):
-                result_iter = ocr.ocr(str(image_path))
-            else:
-                logger.error("OCR engine missing predict/ocr methods.")
-                return None
+            # Use proved working predict OR ocr method
+            res_iter = None
+            if hasattr(ocr, 'predict'): res_iter = ocr.predict(str(image_path))
+            elif hasattr(ocr, 'ocr'): res_iter = ocr.ocr(str(image_path))
 
-            all_texts = []
-            for res in result_iter:
-                data = res.get('res', res) if isinstance(res, dict) else res
-                if isinstance(data, list):
-                    for line in data:
-                        if isinstance(line, list) and len(line) > 1:
-                            text = line[1][0] if isinstance(line[1], tuple) else str(line[1])
-                            all_texts.append(str(text).strip())
-                elif isinstance(data, dict):
-                    texts = data.get('rec_texts', [])
-                    all_texts.extend([str(t).strip() for t in texts])
+            all_texts, all_confs = [], []
+            if res_iter:
+                # Handle v3 list lines and dict result structure
+                for res in res_iter:
+                    data = res.get('res', res) if isinstance(res, dict) else res
+                    if isinstance(data, list):
+                        for line in data:
+                            if isinstance(line, list) and len(line) > 1:
+                                all_texts.append(str(line[1][0]).strip())
+                                all_confs.append(float(line[1][1]))
+                    elif isinstance(data, dict):
+                        texts = data.get('rec_texts', [])
+                        all_texts.extend([str(t).strip() for t in texts])
+                        # ADDED: Extract confidence from v3 dict result
+                        scores = data.get('rec_scores', [])
+                        all_confs.extend([float(s) for s in scores if isinstance(s, (int, float))])
 
-            logger.debug(f"Raw Text Detected: {all_texts}")
-            logger.debug(f"Raw OCR result count: {len(all_texts)}; first 5: {all_texts[:5]}")
+            paddle_confidence = sum(all_confs) / len(all_confs) if all_confs else 0.0
 
-            def find_value_after(keyword_list, texts, start_search_idx):
-                for i in range(start_search_idx, len(texts)):
-                    t = texts[i].lower()
-                    if any(kw.lower() in t for kw in keyword_list):
-                        for j in range(i, min(i + 6, len(texts))):
-                            match = re.search(r'(\d+(?:[\.,]\d+)?)\s*([MkGTmkgt]?[Bb]?p?s?)', texts[j])
-                            if match:
-                                val = match.group(1).replace(',', '.')
-                                unit_raw = match.group(2).strip()
-                                unit = ""
-                                u_low = unit_raw.lower()
-                                if 't' in u_low: unit = "T"
-                                elif 'g' in u_low: unit = "G"
-                                elif 'm' in u_low: unit = "M"
-                                elif 'k' in u_low: unit = "k"
-                                
-                                if not unit:
-                                    for k in range(j + 1, min(j + 3, len(texts))):
-                                        next_t = texts[k].strip().lower()
-                                        if re.match(r'^[tmgkTMGK]$', next_t.strip()):
-                                            if 't' in next_t: unit = "T"
-                                            elif 'g' in next_t: unit = "G"
-                                            elif 'm' in next_t: unit = "M"
-                                            elif 'k' in next_t: unit = "k"
-                                            break
-                                        elif next_t in ['m', 'k', 'g', 't']:
-                                            if next_t == 't': unit = "T"
-                                            elif next_t == 'g': unit = "G"
-                                            elif next_t == 'm': unit = "M"
-                                            elif next_t == 'k': unit = "k"
-                                            break
-                                        elif any(kw in next_t for kw in ['current', 'average', 'maximum', 'inbound', 'outbound', 'cur rent']):
-                                            break
-                                            
-                                if not unit:
-                                    unit = "M"
-                                return f"{val} {unit}".strip()
-                            
-                            if 'n/a' in texts[j].lower():
+            logger.debug(f"All texts: {all_texts}")
+            # Proven section-aware fuzzy parser
+            def find_values_in_section(section_keywords, texts):
+                # find section start
+                start_idx = -1
+                for i, t in enumerate(texts):
+                    if any(kw in t.lower() for kw in section_keywords):
+                        start_idx = i
+                        break
+                if start_idx == -1: return {'Current': 'N/A', 'Average': 'N/A', 'Maximum': 'N/A'}
+
+                # Search within a reasonable window for the section
+                section_texts = texts[start_idx:start_idx+15]
+
+                def extract(keyword):
+                    for index, text in enumerate(section_texts):
+                        if keyword not in text.lower():
+                            continue
+                        for value_index in range(index + 1, min(index + 5, len(section_texts))):
+                            match = re.search(
+                                r'(\d+(?:[\.,]\d+)?)\s*([MkGTmkgt]?[Bb]?p?s?)',
+                                section_texts[value_index],
+                            )
+                            if not match:
                                 continue
-                return "N/A"
+                            value = match.group(1).replace(',', '.')
+                            unit = match.group(2).strip()
+                            if not unit:
+                                for unit_text in section_texts[value_index + 1:value_index + 3]:
+                                    unit_match = re.fullmatch(
+                                        r'([MkGTmkgt])(?:[Bb]?p?s?)?',
+                                        unit_text.strip(),
+                                    )
+                                    if unit_match:
+                                        unit = unit_match.group(1)
+                                        break
+                            return f"{value} {unit}".strip()
+                    return "N/A"
 
-            inbound_idx = -1
-            outbound_idx = -1
-            in_kws = ['inbound', 'in-bound', 'in bound', 'inhound', '1nbound', 'nbound', 'inb']
-            out_kws = ['outbound', 'out-bound', 'out bound', 'oulbound', '0utbound', 'outb']
-
-            for i, t in enumerate(all_texts):
-                t_low = t.lower()
-                if any(kw in t_low for kw in in_kws):
-                    inbound_idx = i
-                if any(kw in t_low for kw in out_kws):
-                    outbound_idx = i
-
-            if outbound_idx == -1 and inbound_idx != -1:
-                for i in range(inbound_idx + 1, len(all_texts)):
-                    if any(kw in all_texts[i].lower() for kw in ['current', 'cur rent', 'cur ren', 'curren']):
-                        has_numbers_before = False
-                        for j in range(inbound_idx + 1, i):
-                            if re.search(r'\d', all_texts[j]):
-                                has_numbers_before = True
-                                break
-                        if has_numbers_before:
-                            outbound_idx = i - 1
-                            break
-
-            if inbound_idx != -1:
-                search_limit = outbound_idx if outbound_idx > inbound_idx else len(all_texts)
-                in_area = all_texts[inbound_idx:search_limit]
-                in_vals = {
-                    'Current': find_value_after(['Current', 'Curren', 'Cur rent', 'Cur ren', 'Cur'], in_area, 0),
-                    'Average': find_value_after(['Average', 'Averaqe', 'Avera9e', 'Avera', 'Ave'], in_area, 0),
-                    'Maximum': find_value_after(['Maximum', 'Maximu', 'Maxlmu', 'Max'], in_area, 0)
+                return {
+                    'Current': extract('current'),
+                    'Average': extract('average'),
+                    'Maximum': extract('max')
                 }
-            else:
-                in_vals = {'Current': 'N/A', 'Average': 'N/A', 'Maximum': 'N/A'}
 
-            if outbound_idx != -1:
-                out_area = all_texts[outbound_idx:]
-                out_vals = {
-                    'Current': find_value_after(['Current', 'Curren', 'Cur rent', 'Cur ren', 'Cur'], out_area, 0),
-                    'Average': find_value_after(['Average', 'Averaqe', 'Avera9e', 'Avera', 'Ave'], out_area, 0),
-                    'Maximum': find_value_after(['Maximum', 'Maximu', 'Maxlmu', 'Max'], out_area, 0)
-                }
-            else:
-                out_vals = {'Current': 'N/A', 'Average': 'N/A', 'Maximum': 'N/A'}
+            inbound = find_values_in_section(['inbound', 'in'], all_texts)
+            outbound = find_values_in_section(['outbound', 'out'], all_texts)
 
-            result = {
-                'Inbound_Current': in_vals['Current'],
-                'Inbound_Average': in_vals['Average'],
-                'Inbound_Maximum': in_vals['Maximum'],
-                'Outbound_Current': out_vals['Current'],
-                'Outbound_Average': out_vals['Average'],
-                'Outbound_Maximum': out_vals['Maximum']
+            paddle_values = {
+                'Inbound_Current': inbound['Current'],
+                'Inbound_Average': inbound['Average'],
+                'Inbound_Maximum': inbound['Maximum'],
+                'Outbound_Current': outbound['Current'],
+                'Outbound_Average': outbound['Average'],
+                'Outbound_Maximum': outbound['Maximum'],
             }
-
-            logger.debug(f"Extracted Values: {result}")
-            logger.debug(f"--- END OCR [{image_path.name}] ---\n")
-
-            if progress_callback:
-                progress_callback("done", image_path.name, result)
-                
-            return result
-
+            paddle_complete = all(v != "N/A" for v in paddle_values.values())
         except Exception as e:
-            logger.error(f"OCR Critical Error [{image_path.name}]: {e}")
-            return None
+            logger.warning("PaddleOCR error: %s", str(e))
+
+        # Decision Logic
+        paddle_ok = paddle_complete and paddle_confidence >= config.ocr_confidence_threshold
+
+        gemini_called = False
+        gemini_res = {"values": {}, "model": "", "complete": False, "error_reason": None}
+
+        # Call Gemini if needed based on policy
+        if config.ocr_gemini_observe or not paddle_ok:
+            gemini_called = True
+            extracted_gemini = GeminiLegendExtractor(config).extract_legend(image_path)
+            if isinstance(extracted_gemini, dict):
+                gemini_res = {
+                    "values": extracted_gemini.get("values", {}),
+                    "model": extracted_gemini.get("model", ""),
+                    "complete": bool(extracted_gemini.get("complete", False)),
+                    "error_reason": extracted_gemini.get("error_reason"),
+                }
+
+        final_values = paddle_values
+        engine_used, decision_reason = "Paddle", "paddle_confident" if paddle_ok else "paddle_incomplete"
+
+        # Decide
+        if paddle_ok and not config.ocr_gemini_observe:
+            pass
+        elif gemini_res["complete"]:
+            engine_used = "Gemini"
+            decision_reason = "paddle_error" if not paddle_values else ("paddle_incomplete" if not paddle_complete else "low_confidence")
+            final_values = gemini_res["values"]
+        elif paddle_complete:
+            engine_used, decision_reason = "Paddle", "gemini_unavailable"
+        else:
+            decision_reason = "both_unknown"
+
+        # Override if observing mismatch
+        if config.ocr_gemini_observe and paddle_ok and gemini_res["complete"]:
+            if paddle_values != gemini_res["values"]:
+                engine_used, decision_reason, final_values = "Gemini", "mismatch_observed", gemini_res["values"]
+
+        result.update({
+            "values": final_values, "engine_used": engine_used, "decision_reason": decision_reason,
+            "paddle_confidence": paddle_confidence, "paddle_values": paddle_values,
+            "gemini_values": gemini_res["values"], "gemini_model": gemini_res["model"],
+            "paddle_complete": paddle_complete, "gemini_complete": gemini_res["complete"],
+            "gemini_called": gemini_called
+        })
+        return result

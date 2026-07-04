@@ -21,17 +21,20 @@ class Config:
         self.LOGIN_WAIT = int(os.getenv("LOGIN_WAIT", 60))
         self.MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
         self.MAX_GRAPH_RETRIES = int(os.getenv("MAX_GRAPH_RETRIES", 2))
+
         # Browser configuration
         self.browser_type = os.getenv("BROWSER_TYPE", "chrome").lower()
         if self.browser_type not in ["chrome", "chromium", "firefox", "edge"]:
             logger.warning(f"Invalid BROWSER_TYPE '{self.browser_type}', defaulting to 'chrome'")
             self.browser_type = "chrome"
         self.browser_binary = os.getenv("BROWSER_BINARY_LOCATION")
+
         # Auto-login credentials (optional)
         self.auto_login_enabled = os.getenv("AUTO_LOGIN_ENABLED", "false").lower() in ("true", "1", "yes")
         self.telkom_user = os.getenv("TELKOM_USER", "")
         self.telkom_password = os.getenv("TELKOM_PASSWORD", "")
         self.totp_secret = os.getenv("TOTP_SECRET", "")
+
         # Gemini CAPTCHA solving
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
         models_env = os.getenv("GEMINI_MODELS", "").strip()
@@ -43,3 +46,14 @@ class Config:
                 self.gemini_models = [legacy_model]
             else:
                 self.gemini_models = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]
+
+        # OCR Settings
+        try:
+            threshold = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "0.85"))
+            if 0.0 <= threshold <= 1.0:
+                self.ocr_confidence_threshold = threshold
+            else:
+                self.ocr_confidence_threshold = 0.85
+        except (ValueError, TypeError):
+            self.ocr_confidence_threshold = 0.85
+        self.ocr_gemini_observe = os.getenv("OCR_GEMINI_OBSERVE", "false").lower() in ("true", "1", "yes")

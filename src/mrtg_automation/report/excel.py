@@ -10,6 +10,67 @@ from ..shared.filenames import build_canonical_filename
 
 logger = logging.getLogger(__name__)
 
+OCR_KEYS = (
+    "Inbound_Current",
+    "Inbound_Average",
+    "Inbound_Maximum",
+    "Outbound_Current",
+    "Outbound_Average",
+    "Outbound_Maximum",
+)
+
+def _is_valid_ocr_value(value):
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and value.strip().lower() != "n/a"
+    )
+
+def _classify_ocr_values(values):
+    if not isinstance(values, dict):
+        return "fail", 0, 6
+
+    valid_count = sum(
+        1
+        for key in OCR_KEYS
+        if _is_valid_ocr_value(values.get(key))
+    )
+
+    if valid_count == 6:
+        return "ok", 6, 0
+    if valid_count:
+        return "partial", valid_count, 6 - valid_count
+    return "fail", 0, 6
+
+def _record_ocr_metadata(summary, metadata):
+    engine = metadata.get("engine_used")
+    if engine == "Paddle":
+        summary["ocr_paddle_final"] += 1
+    elif engine == "Gemini":
+        summary["ocr_gemini_final"] += 1
+
+    reason_map = {
+        "paddle_confident": "ocr_paddle_confident",
+        "paddle_error": "ocr_paddle_error",
+        "paddle_incomplete": "ocr_paddle_incomplete",
+        "low_confidence": "ocr_low_confidence",
+        "gemini_unavailable": "ocr_gemini_unavailable",
+        "both_unknown": "ocr_both_unknown",
+        "mismatch_observed": "ocr_mismatch",
+    }
+    counter_key = reason_map.get(metadata.get("decision_reason"))
+    if counter_key:
+        summary[counter_key] += 1
+
+def _prepare_audit_path(output_path, report_mode, resume_mode):
+    if report_mode != "OCR_IMAGE":
+        return None
+    audit_path = output_path.with_suffix(".ocr-audit.jsonl")
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    if not resume_mode:
+        audit_path.write_text("", encoding="utf-8")
+    return audit_path
+
 class ExcelReportGenerator:
     def __init__(self, config):
         self.config = config
@@ -43,6 +104,15 @@ class ExcelReportGenerator:
             "ocr_ok": 0,
             "ocr_partial": 0,
             "ocr_fail": 0,
+            "ocr_paddle_final": 0,
+            "ocr_gemini_final": 0,
+            "ocr_paddle_confident": 0,
+            "ocr_paddle_error": 0,
+            "ocr_paddle_incomplete": 0,
+            "ocr_low_confidence": 0,
+            "ocr_gemini_unavailable": 0,
+            "ocr_both_unknown": 0,
+            "ocr_mismatch": 0,
             "review_list": [],
             "output_file": str(output_path)
         }
@@ -73,6 +143,8 @@ class ExcelReportGenerator:
         elif report_mode == 'OCR_IMAGE':
             mapping = parse_ocr_mapping(mapping_file)
 
+        audit_path = _prepare_audit_path(output_path, report_mode, resume_mode)
+
         if not mapping:
             logger.error("Mapping is empty. Aborting.")
             return summary
@@ -86,7 +158,7 @@ class ExcelReportGenerator:
         summary["targets"] = len(items)
         logger.info(f"Loaded {len(mapping)} mappings and {len(items)} target items.")
 
-        tanggal_list = [d.name for d in data_dir.iterdir() if d.is_dir() and d.name.isdigit()]
+        tanggal_list = self._get_tanggal_folders(data_dir)
         if date_filter:
             if isinstance(date_filter, str):
                 tanggal_list = [t for t in tanggal_list if t == date_filter]
@@ -254,51 +326,82 @@ class ExcelReportGenerator:
                 # Try OCR if applicable
                 if report_mode == 'OCR_IMAGE':
                     print(f"  [{int(nomor):02d}/{len(items)}] {tipe} {target_id} ... ", end="", flush=True)
+
+                    # 1. & 2. Extract and handle exceptions
                     try:
-                        ocr_vals = OCRExtractor.extract_mrtg_values(path_gambar)
+                        metadata = OCRExtractor.extract_mrtg_values_with_metadata(path_gambar, self.config)
                     except Exception as e:
                         logger.error(f"OCR Extractor exception: {e}")
-                        ocr_vals = None
+                        metadata = {
+                            "values": None, "engine_used": "Error", "decision_reason": "both_unknown",
+                            "paddle_confidence": 0.0, "paddle_values": {}, "gemini_values": {},
+                            "gemini_model": "", "paddle_complete": False, "gemini_complete": False,
+                            "gemini_called": False,
+                        }
 
-                    if ocr_vals is None:
-                        print("FAIL")
+                    # 3. & 4. Record and classify
+                    _record_ocr_metadata(summary, metadata)
+                    ocr_vals = metadata.get("values")
+                    ocr_vals = ocr_vals if isinstance(ocr_vals, dict) else {}
+                    status, valid_cnt, na_cnt = _classify_ocr_values(ocr_vals)
+
+                    gemini_display = (
+                        metadata.get("gemini_model") or "called-no-result"
+                        if metadata.get("gemini_called")
+                        else "skipped"
+                    )
+                    print(f"engine={metadata['engine_used']} conf={metadata['paddle_confidence']:.2f} reason={metadata['decision_reason']} gemini={gemini_display}")
+
+                    # 5. Set status/counters
+                    if status == "ok":
+                        summary["ocr_ok"] += 1
+                        item_status = "OK"
+                        item_error = None
+                        ocr_status_for_state = "ocr_ok"
+                        item_suffix = ""
+                        print("OK")
+                    elif status == "partial":
+                        summary["ocr_partial"] += 1
+                        item_status = "PARTIAL"
+                        item_error = None
+                        ocr_status_for_state = "ocr_partial"
+                        item_suffix = f" ocr_status=partial na_count={na_cnt}"
+                        summary["review_list"].append({"target_id": target_id, "date": tanggal_str, "sheet": sheet_name, "status": "Partial", "na_count": na_cnt})
+                        print(f"PARTIAL ({valid_cnt}/6)")
+                    else:
                         summary["ocr_fail"] += 1
-                        summary["review_list"].append({
-                            "target_id": target_id,
-                            "date": tanggal_str,
-                            "sheet": sheet_name,
-                            "status": "Fail",
-                            "na_count": 6
-                        })
                         item_status = "FAIL"
                         item_error = "ocr_failed"
                         ocr_status_for_state = "ocr_failed"
-                        # Optional: fill all mapped text fields with N/A
-                        for field_key, (r, c) in mapping[target_id].items():
-                            if field_key != 'Image':
-                                sheet.cell(row=r, column=c, value="N/A")
-                    else:
-                        na_count = sum(1 for v in ocr_vals.values() if v == 'N/A')
-                        if na_count == 0:
-                            print("OK")
-                            summary["ocr_ok"] += 1
-                            ocr_status_for_state = "ocr_ok"
-                        else:
-                            print(f"PARTIAL ({na_count}/6 N/A)")
-                            summary["ocr_partial"] += 1
-                            ocr_status_for_state = "ocr_partial"
-                            summary["review_list"].append({
-                                "target_id": target_id,
-                                "date": tanggal_str,
-                                "sheet": sheet_name,
-                                "status": "Partial",
-                                "na_count": na_count
-                            })
-                            item_suffix = f" ocr_status=partial na_count={na_count}"
+                        item_suffix = ""
+                        summary["review_list"].append({"target_id": target_id, "date": tanggal_str, "sheet": sheet_name, "status": "Fail", "na_count": 6})
+                        print("FAIL")
 
-                        for field_key, (r, c) in mapping[target_id].items():
-                            if field_key != 'Image' and field_key in ocr_vals:
-                                sheet.cell(row=r, column=c, value=ocr_vals[field_key])
+                    # 6. Fill mapping
+                    for field_key, (row, column) in mapping[target_id].items():
+                        if field_key == "Image":
+                            continue
+                        value = ocr_vals.get(field_key)
+                        sheet.cell(
+                            row=row,
+                            column=column,
+                            value=value if _is_valid_ocr_value(value) else "N/A",
+                        )
+
+                    # 7. Audit JSONL
+                    import json
+                    log_entry = {
+                        "date": tanggal_str, "target_id": target_id, "image_path": str(path_gambar),
+                        "engine_used": metadata['engine_used'], "decision_reason": metadata['decision_reason'],
+                        "paddle_confidence": metadata['paddle_confidence'], "paddle_complete": metadata['paddle_complete'],
+                        "gemini_complete": metadata['gemini_complete'], "gemini_model": metadata['gemini_model'],
+                        "final_values": ocr_vals, "gemini_called": metadata.get("gemini_called", False),
+                        "status": status, "valid_count": valid_cnt, "missing_count": na_cnt,
+                        "paddle_values": metadata.get("paddle_values", {}), "gemini_values": metadata.get("gemini_values", {})
+                    }
+                    if audit_path:
+                        with open(audit_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
                 # Insert the image
                 insert_img_flag = os.environ.get('INSERT_IMAGES', 'True').lower() == 'true'

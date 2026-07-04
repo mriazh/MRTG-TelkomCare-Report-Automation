@@ -219,6 +219,35 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
     print("[FAIL] You must provide either --date OR both --start-date and --end-date")
     return []
 
+
+def _discover_data_dates(data_dir: Path) -> list:
+    dates = []
+    if not data_dir.exists():
+        return dates
+
+    for entry in data_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        try:
+            dates.append(datetime.datetime.strptime(entry.name, "%Y%m%d").date())
+        except ValueError:
+            continue
+
+    return sorted(dates)
+
+
+def _group_dates_by_month(dates: list) -> dict:
+    groups = {}
+    for report_date in sorted(dates):
+        month_key = report_date.strftime("%Y-%m")
+        groups.setdefault(month_key, []).append(report_date)
+    return groups
+
+
+def _monthly_output_path(output_path: Path, month_key: str) -> Path:
+    return output_path.parent / f"{output_path.stem}-{month_key}{output_path.suffix}"
+
+
 def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None, cancel_event=None, resume_state=None, resume_mode: bool = False) -> int:
     """
     Run scrape-only command for one or more dates.
@@ -377,21 +406,24 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
     ensure_directories()
     setup_logging()
 
+    from .config import Config
+    from .report.excel import ExcelReportGenerator
+    from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
+
     if date_str or (start_date_str and end_date_str):
         dates = parse_cli_dates(date_str, start_date_str, end_date_str)
         if not dates:
             return 1
-        date_filter = date_str if len(dates) == 1 else [d.strftime("%Y%m%d") for d in dates]
+        date_filter = [d.strftime("%Y%m%d") for d in dates]
     else:
-        dates = []
-        date_filter = None
+        dates = _discover_data_dates(DATA_DIR)
+        if not dates:
+            print("[FAIL] No valid YYYYMMDD data folders found.")
+            return 1
+        date_filter = [d.strftime("%Y%m%d") for d in dates]
 
     if no_images:
         os.environ["INSERT_IMAGES"] = "False"
-
-    from .report.excel import ExcelReportGenerator
-    from .config import Config
-    from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
 
     if mode == "image":
         report_mode = "IMAGE_ONLY"
@@ -444,47 +476,54 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
 
     cfg = Config()
     generator = ExcelReportGenerator(cfg)
-    summary = generator.generate(
-        report_mode=report_mode,
-        data_dir=DATA_DIR,
-        template_path=template_file,
-        output_path=output_file,
-        mapping_file=mapping_file,
-        list_file=list_file,
-        date_filter=date_filter,
-        cancel_event=cancel_event,
-        resume_state=resume_state,
-        resume_mode=resume_mode,
-        phase=phase
-    )
+    date_groups = _group_dates_by_month(dates)
 
-    if summary.get("cancelled"):
-        print("[STOP] Report stopped by user.")
-        log_run_boundary("RUN END", "report exit_code=130 stopped_by_user")
-        return 130
+    total_summary = {
+        "ocr_ok": 0,
+        "ocr_partial": 0,
+        "ocr_fail": 0,
+        "ocr_paddle_final": 0,
+        "ocr_gemini_final": 0,
+        "ocr_paddle_confident": 0,
+        "ocr_paddle_error": 0,
+        "ocr_paddle_incomplete": 0,
+        "ocr_gemini_unavailable": 0,
+        "ocr_both_unknown": 0,
+        "ocr_low_confidence": 0,
+        "ocr_mismatch": 0,
+    }
 
-    print("\nReport Summary:")
-    print(f"Dates processed    : {summary.get('dates_processed', 0)}")
-    print(f"Targets per date   : {summary.get('targets', 0)}")
-    print(f"Expected inserts   : {summary.get('expected', 0)}")
-    print(f"Image inserted     : {summary.get('image_inserted', 0)}")
-    if mode == "ocr":
-        print(f"OCR OK             : {summary.get('ocr_ok', 0)}")
-        print(f"OCR Partial        : {summary.get('ocr_partial', 0)}")
-        print(f"OCR Fail           : {summary.get('ocr_fail', 0)}")
-    print(f"Missing screenshots: {summary.get('missing_screenshots', 0)}")
-    print(f"Missing mappings   : {summary.get('missing_mappings', 0)}")
-    print(f"Failed inserts     : {summary.get('failed_inserts', 0)}")
-    print(f"Output             : {summary.get('output_file', '')}")
+    overall_success = True
+    for month_key, month_dates in date_groups.items():
+        month_output_file = _monthly_output_path(output_file, month_key)
+        date_filter = [d.strftime("%Y%m%d") for d in month_dates]
 
-    if summary.get("success"):
-        print("\n[OK] Report generated successfully.")
-        log_run_boundary("RUN END", "report exit_code=0 success=True")
-        return 0
-    else:
-        print("\n[FAIL] Failed to generate report.")
-        log_run_boundary("RUN END", "report exit_code=1 success=False")
-        return 1
+        print(f"\n[PHASE] Generating report for {month_key} ({len(month_dates)} days)")
+
+        month_summary = generator.generate(
+            report_mode=report_mode, data_dir=DATA_DIR, template_path=template_file,
+            output_path=month_output_file, mapping_file=mapping_file, list_file=list_file,
+            date_filter=date_filter, cancel_event=cancel_event, resume_state=resume_state,
+            resume_mode=resume_mode, phase=phase
+        )
+
+        for key in total_summary:
+            total_summary[key] += month_summary.get(key, 0)
+
+        if month_summary.get("success"):
+            print(f"[SUCCESS] {month_output_file.name} generated.")
+        else:
+            overall_success = False
+            print(f"[FAIL] {month_output_file.name} was not generated successfully.")
+
+    print("\n" + "=" * 50)
+
+    print("FINAL AGGREGATE REPORT SUMMARY")
+    print("=" * 50)
+    for key, value in total_summary.items():
+        print(f"{key}: {value}")
+    print("=" * 50)
+    return 0 if overall_success else 1
 
 def run_full_command(
     date_str: str = None,
