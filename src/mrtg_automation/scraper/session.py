@@ -234,22 +234,30 @@ class SessionManager:
             return False
 
     def wait_for_manual_login(self) -> bool:
-        """Switch to non-headless mode and pause for user to login.
+        """Pause for user to login manually.
 
-        If currently headless, restart browser in non-headless mode.
-        Prints prompt, waits for user to press Enter after solving captcha + MFA.
+        Requires the current session to already be non-headless (visible mode).
+        Closes existing driver, opens a new one on the base URL, prompts user
+        to solve CAPTCHA + MFA, then saves cookies and restarts the driver
+        with the original headless setting.
+
+        Returns True if login completed and session cookies saved.
+        Returns False if cancelled or login failed.
         """
         if self._is_cancelled(): return False
 
-        # Always close existing driver before starting visible login
-        self.close()
-
-        # Switch off headless for this session
+        # Save the current headless state to restore afterward.
         original_headless = self.headless
-        self.headless = False
+
+        # Always close existing driver before starting fresh for login
+        self.close()
 
         try:
             if self._is_cancelled(): return False
+
+            if self.headless:
+                logger.warning("wait_for_manual_login called in headless mode — browser will stay headless, user will not see the login page.")
+
             self.start()
             if self._is_cancelled(): return False
             self.driver.get(self.base_url)
@@ -257,7 +265,8 @@ class SessionManager:
             print("\n" + "=" * 70)
             print("MANUAL LOGIN REQUIRED")
             print("=" * 70)
-            print("1. Browser is now open (non-headless) for you to see")
+            visible = "visible" if not self.headless else "headless"
+            print(f"1. Browser is now open ({visible}) for you to interact")
             print("2. Navigate to TelkomCare login page if not already there")
             print("3. Solve the captcha (image-based, e.g., 'c8g')")
             print("4. Enter username + password")
@@ -296,8 +305,7 @@ class SessionManager:
             self.driver.refresh()
             return True
         finally:
-            # Keep headless=False until next start() call, but allow
-            # subsequent calls to use original headless setting
+            # Always restore the configured headless setting
             self.headless = original_headless
 
     def close(self) -> None:

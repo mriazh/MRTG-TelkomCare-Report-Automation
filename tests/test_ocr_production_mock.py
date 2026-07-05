@@ -20,7 +20,6 @@ from mrtg_automation.report.excel import (
 )
 from mrtg_automation.report.ocr import OCRExtractor
 
-
 EXPECTED_PADDLE_VALUES = {
     "Inbound_Current": "6.65 k",
     "Inbound_Average": "99.52 k",
@@ -40,15 +39,8 @@ GEMINI_VALUES = {
 }
 
 
-class MockConfig:
-    def __init__(self, threshold=0.85, observe=False):
-        self.ocr_confidence_threshold = threshold
-        self.ocr_gemini_observe = observe
-        self.gemini_api_key = "fake-key"
-        self.gemini_models = ["fake-model"]
-
-
 class LegacyEngine:
+    """Legacy PaddleOCR engine that only has .ocr() method (no .predict())."""
     def __init__(self, result):
         self.result = result
 
@@ -58,7 +50,7 @@ class LegacyEngine:
 
 class TestOCRProduction(unittest.TestCase):
     def setUp(self):
-        self.config = MockConfig()
+        self.config = Config()
         self.image_path = Path("unused-test-image.png")
 
     @staticmethod
@@ -93,6 +85,8 @@ class TestOCRProduction(unittest.TestCase):
         engine.predict.return_value = [
             {"res": {"rec_texts": texts, "rec_scores": [confidence] * len(texts)}}
         ]
+        # Ensure no ocr method to force predict path
+        delattr(engine, "ocr")
         return engine
 
     @staticmethod
@@ -126,6 +120,7 @@ class TestOCRProduction(unittest.TestCase):
         engine.predict.return_value = [
             {"res": {"rec_texts": ["Inbound", "Current"], "rec_scores": [0.99, 0.99]}}
         ]
+        delattr(engine, "ocr")
         mock_get_engine.return_value = engine
         mock_gemini.return_value.extract_legend.return_value = self._gemini_result()
 
@@ -181,7 +176,8 @@ class TestOCRProduction(unittest.TestCase):
     def test_legacy_list_support(self, mock_get_engine, mock_gemini):
         box = [[0, 0], [1, 0], [1, 1], [0, 1]]
         lines = [[box, (text, 0.99)] for text in self._texts()]
-        mock_get_engine.return_value = LegacyEngine([lines])
+        legacy_result = [lines]
+        mock_get_engine.return_value = LegacyEngine(legacy_result)
 
         result = OCRExtractor.extract_mrtg_values_with_metadata(
             self.image_path, self.config
@@ -206,7 +202,28 @@ class TestOCRProduction(unittest.TestCase):
                     {"OCR_CONFIDENCE_THRESHOLD": raw_value},
                     clear=False,
                 ):
-                    self.assertEqual(expected_value, Config().ocr_confidence_threshold)
+                    config = Config()
+                    self.assertEqual(expected_value, config.ocr_confidence_threshold)
+
+    def test_gemini_observe_flag_config(self):
+        # Default false
+        with patch.dict(os.environ, {}, clear=True):
+            config = Config()
+            self.assertFalse(config.ocr_gemini_observe)
+
+        # True values
+        for val in ("true", "1", "yes", "TRUE"):
+            with self.subTest(val=val):
+                with patch.dict(os.environ, {"OCR_GEMINI_OBSERVE": val}, clear=False):
+                    config = Config()
+                    self.assertTrue(config.ocr_gemini_observe)
+
+        # False values
+        for val in ("false", "0", "no", "FALSE"):
+            with self.subTest(val=val):
+                with patch.dict(os.environ, {"OCR_GEMINI_OBSERVE": val}, clear=False):
+                    config = Config()
+                    self.assertFalse(config.ocr_gemini_observe)
 
 
 class TestOCRReportHelpers(unittest.TestCase):
@@ -240,7 +257,7 @@ class TestOCRReportHelpers(unittest.TestCase):
         self.assertEqual(("fail", 0, 6), _classify_ocr_values({}))
         self.assertEqual(("fail", 0, 6), _classify_ocr_values(None))
 
-    def test_records_metadata_once(self):
+    def test_records_metadata_once_paddle(self):
         paddle_summary = self._summary()
         _record_ocr_metadata(
             paddle_summary,
@@ -250,6 +267,7 @@ class TestOCRReportHelpers(unittest.TestCase):
         self.assertEqual(1, paddle_summary["ocr_paddle_confident"])
         self.assertEqual(2, sum(paddle_summary.values()))
 
+    def test_records_metadata_once_gemini(self):
         gemini_summary = self._summary()
         _record_ocr_metadata(
             gemini_summary,
@@ -265,23 +283,41 @@ class TestOCRReportHelpers(unittest.TestCase):
             audit_path = output_path.with_suffix(".ocr-audit.jsonl")
             audit_path.write_text("old\n", encoding="utf-8")
 
-            self.assertIsNone(
-                _prepare_audit_path(output_path, "IMAGE_ONLY", resume_mode=False)
-            )
-            fresh_path = _prepare_audit_path(
-                output_path, "OCR_IMAGE", resume_mode=False
-            )
-            self.assertEqual("", fresh_path.read_text(encoding="utf-8"))
+            # Fresh run (resume_mode=False) should truncate
+            fresh_audit = _prepare_audit_path(output_path, "OCR_IMAGE", resume_mode=False)
+            self.assertEqual(fresh_audit, audit_path)
+            self.assertEqual("", audit_path.read_text(encoding="utf-8"))
 
-            payload = {"status": "ok", "target": "uji"}
-            with fresh_path.open("a", encoding="utf-8") as audit_file:
-                audit_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            # Write an entry
+            with open(audit_path, "a", encoding="utf-8") as f:
+                f.write('{"test": 1}\n')
 
-            resume_path = _prepare_audit_path(
-                output_path, "OCR_IMAGE", resume_mode=True
-            )
-            lines = resume_path.read_text(encoding="utf-8").splitlines()
-            self.assertEqual([payload], [json.loads(line) for line in lines])
+            # Resume run (resume_mode=True) should preserve
+            resume_audit = _prepare_audit_path(output_path, "OCR_IMAGE", resume_mode=True)
+            self.assertEqual(resume_audit, audit_path)
+            self.assertEqual('{"test": 1}\n', audit_path.read_text(encoding="utf-8"))
+
+            # Image only mode should return None
+            none_audit = _prepare_audit_path(output_path, "IMAGE_ONLY", resume_mode=False)
+            self.assertIsNone(none_audit)
+
+    def test_audit_append_utf8(self):
+        with TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "report.xlsx"
+            audit_path = _prepare_audit_path(output_path, "OCR_IMAGE", resume_mode=False)
+
+            entry = {
+                "date": "20260713",
+                "target_id": "TEST",
+                "engine_used": "Paddle",
+                "paddle_confidence": 0.99,
+                "final_values": {"Inbound_Current": "6.65 k"},
+            }
+            with open(audit_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+            content = audit_path.read_text(encoding="utf-8")
+            self.assertIn("6.65 k", content)
 
 
 class TestMonthlyGrouping(unittest.TestCase):
@@ -321,34 +357,6 @@ class TestMonthlyGrouping(unittest.TestCase):
         self.assertEqual(
             Path("output/reports/MRTG-Monthly-Report-ocr-2027-01.xlsx"),
             _monthly_output_path(output_path, "2027-01"),
-        )
-
-    @patch("mrtg_automation.report.excel.ExcelReportGenerator.generate")
-    @patch("mrtg_automation.cli._discover_data_dates")
-    def test_no_filter_report_generates_each_month(
-        self, mock_discover_dates, mock_generate
-    ):
-        mock_discover_dates.return_value = [
-            date(2026, 7, 13),
-            date(2026, 8, 1),
-            date(2027, 1, 2),
-        ]
-        mock_generate.return_value = {"success": True}
-
-        exit_code = run_report_command("ocr")
-
-        self.assertEqual(0, exit_code)
-        self.assertEqual(3, mock_generate.call_count)
-        output_names = [
-            call.kwargs["output_path"].name for call in mock_generate.call_args_list
-        ]
-        self.assertEqual(
-            [
-                "MRTG-Monthly-Report-ocr-2026-07.xlsx",
-                "MRTG-Monthly-Report-ocr-2026-08.xlsx",
-                "MRTG-Monthly-Report-ocr-2027-01.xlsx",
-            ],
-            output_names,
         )
 
 

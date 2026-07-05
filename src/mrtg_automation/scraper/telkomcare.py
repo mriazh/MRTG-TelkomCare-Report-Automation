@@ -5,6 +5,7 @@ Main entry point for M4 scraping pipeline.
 Uses SessionManager for persistent Chrome profile and login handling.
 """
 import logging
+import time
 from datetime import date
 from typing import List, Union
 from pathlib import Path
@@ -113,6 +114,11 @@ class TelkomCareScraper:
                 return True
 
             logger.info("Session expired or first run - manual login required")
+            if self.headless:
+                print("[FAIL] Auto-login failed in headless mode. No manual fallback available.")
+                logger.error("Auto-login failed in headless mode; manual login not possible.")
+                return False
+
             if not self.session.wait_for_manual_login():
                 if self._is_cancelled():
                     self.last_cancelled = True
@@ -135,6 +141,20 @@ class TelkomCareScraper:
         except Exception as e:
             logger.error(f"Login flow failed: {e}")
             return False
+
+    def _recreate_extractor(self, mode: str):
+        """Recreate GraphExtractor with current driver and navigate to graph page.
+
+        After a re-login (manual or auto), the old extractor holds a stale driver
+        reference. This method rebuilds it and navigates back to the graph page.
+        """
+        from .extractor import GraphExtractor
+        extractor = GraphExtractor(self.session.driver, mode)
+        if not extractor.navigate_to_graph_page():
+            logger.error("Failed to navigate to graph page after re-login")
+            return None
+        logger.info("Recreated extractor with new driver after re-login")
+        return extractor
 
     def scrape(self, targets: list[str], dates: list,
                mode: str = 'sid', progress_callback=None, cancel_event=None, resume_state=None, phase=None, resume_mode=False) -> dict:
@@ -178,6 +198,7 @@ class TelkomCareScraper:
             save_resume_state(resume_state)
 
         consecutive_failures = 0
+        retry_queue = []  # Targets that failed transiently (DataTables alert) — retried after main loop
 
         for date_obj in dates:
             date_str = date_obj.strftime('%Y%m%d')
@@ -239,6 +260,7 @@ class TelkomCareScraper:
                         continue
 
                 current_index += 1
+                relogin_attempts = 0
                 while True:
                     try:
                         prog_msg = f"[PROGRESS] {mode} {current_index}/{total_items} date={date_str} target={target} starting"
@@ -253,20 +275,62 @@ class TelkomCareScraper:
                         }
 
                         if not filepath and status_info.get("status") != "no_graph":
-                            consecutive_failures += 1
-                            if consecutive_failures >= 3:
-                                logger.warning(f"3 consecutive failures (latest: {target}). Session likely expired. Forcing re-login.")
-                                print(f"\n[WARNING] TelkomCare session may have expired. Requesting manual re-login...")
-                                if self.session.wait_for_manual_login():
-                                    consecutive_failures = 0
-                                    print(f"\n[INFO] Session restored. Retrying target {target}...")
+                            # Check session on EVERY failure — not just after 3 strikes.
+                            still_logged_in = self.session.is_logged_in()
+
+                            if not still_logged_in:
+                                # Session expired — immediate re-login, retry SAME item.
+                                # Do NOT count toward transient consecutive_failures.
+                                relogin_attempts += 1
+                                if relogin_attempts > 3:
+                                    logger.error(f"Re-login exhausted for {target} after 3 attempts.")
+                                    msg = f"session_recovery_exhausted after {relogin_attempts - 1} login attempts"
+                                    print(f"[FAIL] Re-login exhausted for target={target} after 3 attempts. Stopping.")
+                                    if self.headless:
+                                        print("[FAIL] Auto re-login failed in headless mode. No manual fallback available.")
+                                    self.last_cancelled = True
+                                    status_info["status"] = "error"
+                                    status_info["error"] = msg
+                                    break
+
+                                logger.warning(f"Session expired for {target}. Attempting re-login ({relogin_attempts}/3)...")
+                                print(f"\n[WARNING] TelkomCare session expired for {target}. Re-login attempt {relogin_attempts}/3...")
+
+                                relogin_ok = self.session.auto_login()
+
+                                if not relogin_ok and not self.headless:
+                                    print("[INFO] Auto re-login not available or failed. Switching to manual login...")
+                                    relogin_ok = self.session.wait_for_manual_login()
+
+                                if relogin_ok:
+                                    new_extractor = self._recreate_extractor(mode)
+                                    if new_extractor is None:
+                                        print("[FAIL] Could not navigate after re-login. Stopping scrape.")
+                                        self.last_cancelled = True
+                                        break
+                                    extractor = new_extractor
+                                    print(f"\n[INFO] Session restored. Retrying target {target} (attempt {relogin_attempts}/3)...")
                                     continue
                                 else:
-                                    print("[FAIL] Re-login failed or cancelled. Stopping scrape.")
+                                    if self.headless:
+                                        print("[FAIL] Auto re-login failed in headless mode. No manual fallback available. Stopping scrape.")
+                                    else:
+                                        print("[FAIL] Re-login failed or cancelled. Stopping scrape.")
                                     self.last_cancelled = True
+                                    break
+                            else:
+                                # Session still valid — transient failure.
+                                # Use existing 3-strike + retry-queue system.
+                                consecutive_failures += 1
+                                if consecutive_failures >= 3:
+                                    logger.warning(f"3 consecutive transient failures (latest: {target}). Adding to retry queue.")
+                                    print(f"\n[WARNING] 3 consecutive transient failures (target={target}). Queuing for retry pass...")
+                                    retry_queue.append((target, date_obj, mode, phase, key))
+                                    consecutive_failures = 0
                                     break
                         else:
                             consecutive_failures = 0
+                            relogin_attempts = 0
 
                         self.last_statuses[(target, date_obj)] = status_info
 
@@ -336,10 +400,71 @@ class TelkomCareScraper:
                         break  # Exit while loop on unexpected exception
 
                 if self.last_cancelled:
+                    # Issue 4 — Mark remaining targets as failed when session recovery fails
+                    # The loop is currently at date_obj/target. Remaining items can be estimated
+                    # from total_items - current_index. Individual items are not explicitly listed,
+                    # but resume state is saved so the user can resume from the failure point.
                     if resume_state is not None:
                         resume_state["status"] = "stopped"
                         save_resume_state(resume_state)
+
+                    if self.headless:
+                        # In headless mode, auto re-login failed and there is no manual fallback.
+                        remaining = total_items - current_index
+                        print(f"\n[FAIL] Auto re-login failed in headless mode. {remaining} target(s) not processed.")
+                        print("[FAIL] No manual fallback available in headless mode.")
+                        print("[INFO] To resume after fixing credentials/connectivity, run with --resume.")
                     return results
+
+        # Retry pass for transient failures (Issue 2)
+        if retry_queue:
+            print(f"\n[RETRY] Starting retry pass for {len(retry_queue)} transient-failed targets...")
+            for retry_target, retry_date, retry_mode, retry_phase, retry_key in retry_queue:
+                retry_date_str = retry_date.strftime('%Y%m%d')
+                for attempt in range(2):
+                    if self.cancel_event is not None and self.cancel_event.is_set():
+                        break
+                    if attempt > 0:
+                        time.sleep(30)  # Cooldown between attempts
+                    print(f"[RETRY] {retry_mode} attempt {attempt+1}/2 date={retry_date_str} target={retry_target}")
+                    try:
+                        retry_filepath = extractor.capture_graph(retry_target, retry_date)
+                        if retry_filepath:
+                            if retry_target not in results:
+                                results[retry_target] = {}
+                            results[retry_target][retry_date] = str(retry_filepath)
+                            if resume_state is not None:
+                                item = {
+                                    "phase": retry_phase, "mode": retry_mode,
+                                    "date": retry_date_str, "target": retry_target,
+                                    "status": "ok", "error": None, "path": str(retry_filepath),
+                                    "key": retry_key
+                                }
+                                mark_item_completed(resume_state, item)
+                                resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, retry_phase)
+                                save_resume_state(resume_state)
+                            print(f"[RETRY OK] {retry_mode} date={retry_date_str} target={retry_target}")
+                            break
+                        else:
+                            logger.warning(f"[RETRY FAIL] {retry_mode} date={retry_date_str} target={retry_target} attempt {attempt+1}/2")
+                    except Exception as e:
+                        logger.error(f"[RETRY ERROR] {retry_mode} date={retry_date_str} target={retry_target} attempt {attempt+1}/2: {e}")
+
+                    if attempt == 1:  # Final failure after 2 retry attempts
+                        if resume_state is not None:
+                            item = {
+                                "phase": retry_phase, "mode": retry_mode,
+                                "date": retry_date_str, "target": retry_target,
+                                "status": "error", "error": "transient_failed_after_retry",
+                                "path": None, "key": retry_key
+                            }
+                            mark_item_completed(resume_state, item)
+                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, retry_phase)
+                            save_resume_state(resume_state)
+                        print(f"[RETRY FAIL] {retry_mode} date={retry_date_str} target={retry_target} — final failure after retry pass")
+
+            if resume_state is not None:
+                save_resume_state(resume_state)
 
         if resume_state is not None:
             resume_state["current_phase"] = phase
