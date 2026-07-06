@@ -319,15 +319,51 @@ class TelkomCareScraper:
                                     self.last_cancelled = True
                                     break
                             else:
-                                # Session still valid — transient failure.
-                                # Use existing 3-strike + retry-queue system.
-                                consecutive_failures += 1
-                                if consecutive_failures >= 3:
-                                    logger.warning(f"3 consecutive transient failures (latest: {target}). Adding to retry queue.")
-                                    print(f"\n[WARNING] 3 consecutive transient failures (target={target}). Queuing for retry pass...")
-                                    retry_queue.append((target, date_obj, mode, phase, key))
-                                    consecutive_failures = 0
-                                    break
+                                # Session still valid — check if this is a transient render/timeout failure.
+                                # Transient failures: Graph did not render, timeout, stale element, DOM errors,
+                                # blank/invalid captures. These follow the 3-strike inline retry path
+                                # (same as StaleElementReference/DataTables alert), then queue if all 3 fail.
+                                error_msg = status_info.get("error", "")
+                                error_lower = error_msg.lower()
+                                transient_patterns = (
+                                    "graph did not render",
+                                    "capture failed after 3 stale retries",
+                                    "timeout",
+                                    "staleelementreference",
+                                    "no-graph placeholder",
+                                    "no_graph placeholder",
+                                    "blank",  # blank validation error = placeholder/no-render
+                                    "invalid graph capture after 3 attempts",  # catch-all for validation failures after retries
+                                )
+                                is_transient = any(p in error_lower for p in transient_patterns)
+
+                                if is_transient:
+                                    # 3-strike inline retry path: increment counter, retry via while loop
+                                    # (capture_graph already did its 3 internal retries; this is telkomcare-level retry)
+                                    consecutive_failures += 1
+                                    if consecutive_failures >= 3:
+                                        logger.warning(f"3 consecutive transient failures for {target}: {error_msg} — queuing for retry pass.")
+                                        print(f"\n[WARNING] 3 transient failures — queuing for retry pass: {target} ({error_msg})")
+                                        retry_queue.append((target, date_obj, mode, phase, key))
+                                        consecutive_failures = 0
+                                        break
+                                    else:
+                                        # Inline retry: recover page and continue while loop to call capture_graph again
+                                        logger.warning(f"Transient failure {consecutive_failures}/3 for {target}: {error_msg} — retrying inline.")
+                                        print(f"\n[RETRY] Transient failure {consecutive_failures}/3 for {target} — recovering page and retrying inline.")
+                                        extractor.recover_graph_page()
+                                        time.sleep(2)
+                                        continue
+                                else:
+                                    # Non-transient error (e.g., input_target failed, set_date_filter failed)
+                                    # Fall back to old 3-strike logic for backward compatibility
+                                    consecutive_failures += 1
+                                    if consecutive_failures >= 3:
+                                        logger.warning(f"3 consecutive transient failures (latest: {target}). Adding to retry queue.")
+                                        print(f"\n[WARNING] 3 consecutive transient failures (target={target}). Queuing for retry pass...")
+                                        retry_queue.append((target, date_obj, mode, phase, key))
+                                        consecutive_failures = 0
+                                        break
                         else:
                             consecutive_failures = 0
                             relogin_attempts = 0

@@ -67,15 +67,74 @@ class Worker(QObject):
         return True
 
     def run(self):
+        def clean_selenium_stacktrace(text: str) -> str:
+            """Remove Selenium stacktrace noise from log messages for GUI display.
+            Keeps the first line (error summary) but removes stacktrace lines.
+            """
+            lines = text.splitlines()
+            if not lines:
+                return text
+            
+            # Keep first line, filter out stacktrace lines
+            clean_lines = [lines[0]]
+            stacktrace_started = False
+            for line in lines[1:]:
+                stripped = line.strip()
+                # Detect start of stacktrace
+                if any(marker in stripped for marker in [
+                    "Stacktrace:",
+                    "Chromedriver!",
+                    "(Session info:",
+                    "For documentation on this error",
+                    "Build info:",
+                    "System info:",
+                    "Driver info:",
+                ]):
+                    stacktrace_started = True
+                    continue
+                # Skip indented stacktrace lines (memory addresses, etc.)
+                if stacktrace_started and (stripped.startswith("#") or 
+                    any(c in stripped for c in ["0x", "0X"]) or
+                    stripped.endswith("+")):
+                    continue
+                if stacktrace_started and not stripped:
+                    continue
+                # If we hit a non-stacktrace line after stacktrace started, include it
+                if stacktrace_started:
+                    stacktrace_started = False
+                    clean_lines.append(line)
+                elif not stacktrace_started:
+                    clean_lines.append(line)
+            
+            result = "\n".join(clean_lines)
+            # Add truncation indicator if we removed content
+            if len(result) < len(text):
+                result = result.rstrip() + " [...]"
+            return result
+
         class StreamRedirector(io.StringIO):
             def __init__(self, signal):
                 super().__init__()
                 self.signal = signal
+                self._buffer = ""
 
             def write(self, text):
                 if text.strip():
-                    self.signal.emit(text.strip())
+                    # Buffer text to handle multi-line messages
+                    self._buffer += text
+                    # Emit when we have a complete line
+                    while "\n" in self._buffer:
+                        line, self._buffer = self._buffer.split("\n", 1)
+                        cleaned = clean_selenium_stacktrace(line)
+                        self.signal.emit(cleaned)
                 super().write(text)
+
+            def flush(self):
+                if self._buffer:
+                    cleaned = clean_selenium_stacktrace(self._buffer)
+                    self.signal.emit(cleaned)
+                    self._buffer = ""
+                super().flush()
 
         redirector = StreamRedirector(self.log_signal)
 
