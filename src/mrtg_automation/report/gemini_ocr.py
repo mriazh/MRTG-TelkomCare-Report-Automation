@@ -7,7 +7,7 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 
 from mrtg_automation.config import Config
 

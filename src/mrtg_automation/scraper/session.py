@@ -5,7 +5,6 @@ Used by TelkomCare scraper to maintain login session across runs.
 Supports automatic Gemini CAPTCHA solving + TOTP login with manual fallback.
 Subsequent runs reuse cookies for persistence.
 """
-import os
 import logging
 import json
 from pathlib import Path
@@ -30,7 +29,6 @@ from selenium.common.exceptions import StaleElementReferenceException, TimeoutEx
 from webdriver_manager.chrome import ChromeDriverManager, ChromeType
 from webdriver_manager.firefox import GeckoDriverManager
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
-from mrtg_automation.shared.paths import ROOT_DIR
 
 logger = logging.getLogger('mrtg_automation.scraper.session')
 

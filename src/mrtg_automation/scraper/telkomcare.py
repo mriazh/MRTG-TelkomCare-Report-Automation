@@ -7,8 +7,6 @@ Uses SessionManager for persistent Chrome profile and login handling.
 import logging
 import time
 from datetime import date
-from typing import List, Union
-from pathlib import Path
 from .session import SessionManager
 from mrtg_automation.shared.resume_state import get_completed_item_keys, mark_item_completed, save_resume_state, make_item_key, count_completed_items_for_phase
 from mrtg_automation.shared.filenames import get_screenshot_path

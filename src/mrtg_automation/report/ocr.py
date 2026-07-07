@@ -2,10 +2,9 @@ import os
 import sys
 import re
 import logging
-import json
 from pathlib import Path
 import contextlib
-from typing import Optional, Any
+from typing import Any
 from mrtg_automation.config import Config
 from mrtg_automation.report.gemini_ocr import GeminiLegendExtractor
 
@@ -88,12 +87,6 @@ class OCRExtractor:
             logger.debug("PaddleOCR engine initialized successfully.")
             
         return cls._engine
-
-    @classmethod
-    def extract_mrtg_values(cls, image_path: Path, progress_callback=None) -> dict:
-        """Extract numerical values from an MRTG graph screenshot."""
-        from mrtg_automation.config import Config
-        return cls.extract_mrtg_values_with_metadata(image_path, Config(), progress_callback)["values"]
 
     @classmethod
     def extract_mrtg_values_with_metadata(cls, image_path: Path, config: Config, progress_callback=None) -> dict[str, Any]:

@@ -1,4 +1,3 @@
-import sys
 import logging
 from .shared.paths import ensure_directories
 from .shared.logging import setup_logging
