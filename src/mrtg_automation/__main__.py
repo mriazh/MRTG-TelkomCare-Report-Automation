@@ -1,8 +1,9 @@
-import sys
-import os
 import argparse
+import os
+import sys
 
-from mrtg_automation.cli import run_cli, run_scrape_command, run_report_command
+from mrtg_automation.cli import run_cli, run_report_command, run_scrape_command
+
 
 def main():
     parser = argparse.ArgumentParser(description="MRTG TelkomCare Report Automation")

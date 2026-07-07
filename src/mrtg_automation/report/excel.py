@@ -1,12 +1,15 @@
-import os
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
+
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-from .mapping import parse_image_only_mapping, parse_target_list, parse_ocr_mapping
+
+from ..shared.filenames import build_canonical_filename, is_image_file_valid
 from .images import insert_image_to_area
-from ..shared.filenames import build_canonical_filename
+from .mapping import parse_image_only_mapping, parse_ocr_mapping, parse_target_list
+
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +91,7 @@ class ExcelReportGenerator:
         folders.sort()
         return folders
 
-    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None, cancel_event=None, resume_state=None, resume_mode: bool = False, phase: str = None):
+    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False, phase: str = None):
         """
         Main orchestration logic for report generation.
         """
@@ -203,7 +206,13 @@ class ExcelReportGenerator:
         total_items = len(tanggal_list) * len(items)
         current_index = 0
 
-        from mrtg_automation.shared.resume_state import get_completed_item_keys, mark_item_completed, save_resume_state, make_item_key, count_completed_items_for_phase
+        from mrtg_automation.shared.resume_state import (
+            count_completed_items_for_phase,
+            get_completed_item_keys,
+            make_item_key,
+            mark_item_completed,
+            save_resume_state,
+        )
         if resume_state is not None:
             resume_state["status"] = "running"
             resume_state["current_phase"] = phase
@@ -270,10 +279,23 @@ class ExcelReportGenerator:
                         save_resume_state(resume_state)
                     return summary
 
+                # Pause check: block if paused, wake periodically to check cancel
+                while pause_event is not None and pause_event.is_set():
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
+                    pause_event.wait(timeout=0.3)
+
                 if resume_mode and key in completed_keys:
-                    print(f"[SKIP] report {current_index + 1}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} already completed")
-                    current_index += 1
-                    continue
+                    completed_item = find_completed_item(key)
+                    # Physical file validation: check if the screenshot file exists and is valid
+                    screenshot_path = data_dir / tanggal_str / f"{target_id}.png"
+                    if completed_item and completed_item.get("status", "ok") != "error" and not is_image_file_valid(screenshot_path):
+                        print(f"State says OK but screenshot missing/invalid, re-processing OCR: {target_id}")
+                        # Fall through; re-process OCR
+                    else:
+                        print(f"[SKIP] report {current_index + 1}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} already completed")
+                        current_index += 1
+                        continue
 
                 current_index += 1
                 prog_msg = f"[PROGRESS] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} starting"

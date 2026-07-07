@@ -1,6 +1,8 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+
 from mrtg_automation import app_info
+
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):

@@ -1,9 +1,10 @@
 import io
 import logging
 from pathlib import Path
-from PIL import Image as PILImage
+
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
+from PIL import Image as PILImage
 
 logger = logging.getLogger(__name__)
 

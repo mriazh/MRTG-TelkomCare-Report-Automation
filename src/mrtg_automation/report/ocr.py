@@ -1,10 +1,11 @@
-import os
-import sys
-import re
-import logging
-from pathlib import Path
 import contextlib
+import logging
+import os
+import re
+import sys
+from pathlib import Path
 from typing import Any
+
 from mrtg_automation.config import Config
 from mrtg_automation.report.gemini_ocr import GeminiLegendExtractor
 

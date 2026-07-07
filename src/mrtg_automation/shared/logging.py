@@ -1,5 +1,7 @@
 import logging
+
 from .paths import LOGS_DIR
+
 
 def setup_logging():
     """

@@ -1,6 +1,8 @@
-import os
 import logging
+import os
+
 from dotenv import load_dotenv
+
 from .shared.paths import CONFIG_DIR
 
 logger = logging.getLogger('mrtg_automation.config')

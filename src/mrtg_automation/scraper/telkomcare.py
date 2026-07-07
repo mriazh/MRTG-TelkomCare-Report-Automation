@@ -7,9 +7,18 @@ Uses SessionManager for persistent Chrome profile and login handling.
 import logging
 import time
 from datetime import date
+
+from mrtg_automation.shared.filenames import get_screenshot_path, is_image_file_valid
+from mrtg_automation.shared.resume_state import (
+    count_completed_items_for_phase,
+    get_completed_item_keys,
+    make_item_key,
+    mark_item_completed,
+    save_resume_state,
+)
+
 from .session import SessionManager
-from mrtg_automation.shared.resume_state import get_completed_item_keys, mark_item_completed, save_resume_state, make_item_key, count_completed_items_for_phase
-from mrtg_automation.shared.filenames import get_screenshot_path
+
 
 logger = logging.getLogger('mrtg_automation.scraper.telkomcare')
 
@@ -29,7 +38,7 @@ class TelkomCareScraper:
     """
 
     def __init__(self, config=None, profile_dir: str = None, headless: bool = True,
-                 base_url: str = 'http://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', manual_login_waiter=None, cancel_event=None):
+                 base_url: str = 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', cancel_event=None):
         self.config = config
         self.base_url = base_url
         self.headless = headless
@@ -39,7 +48,6 @@ class TelkomCareScraper:
             profile_dir=profile_dir,
             headless=headless,
             base_url=base_url,
-            manual_login_waiter=manual_login_waiter,
             cancel_event=cancel_event
         )
         self.last_statuses = {}
@@ -50,15 +58,15 @@ class TelkomCareScraper:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def login(self) -> bool:
-        """Establish login session. Tries saved cookies first, then manual login.
+        """Establish login session. Tries saved cookies first, then auto-login.
 
         Flow:
         1. Start SessionManager (headless=True by default)
         2. Try loading saved cookies from profile
         3. Navigate to base_url
         4. If is_logged_in() returns True: done (cookies worked)
-        5. If False: call wait_for_manual_login() for user to solve captcha + MFA
-        6. After manual login, save cookies for next run
+        5. If False: try auto_login()
+        6. After auto login, save cookies for next run
 
         Returns True if logged in (or login just completed), False on error.
         """
@@ -106,36 +114,25 @@ class TelkomCareScraper:
                 logger.warning("[STOP] Login cancelled by user.")
                 return False
 
-            # Try auto-login first if configured
+            # Try auto-login if configured
             if self.session.auto_login():
                 self._logged_in = True
                 return True
 
-            logger.info("Session expired or first run - manual login required")
-            if self.headless:
-                print("[FAIL] Auto-login failed in headless mode. No manual fallback available.")
-                logger.error("Auto-login failed in headless mode; manual login not possible.")
-                return False
-
-            if not self.session.wait_for_manual_login():
-                if self._is_cancelled():
-                    self.last_cancelled = True
-                    logger.warning("[STOP] Login cancelled by user.")
-                return False
-
+            # Auto-login failed or not configured
             if self._is_cancelled():
                 self.last_cancelled = True
                 logger.warning("[STOP] Login cancelled by user.")
                 return False
 
-            # After manual login, verify it worked
+            # Verify login after auto-login
             if self.session.is_logged_in():
-                logger.info("Manual login successful")
+                logger.info("Auto-login successful")
                 self._logged_in = True
                 return True
-            else:
-                logger.error("Login flow did not result in dashboard page")
-                return False
+
+            logger.error("Login failed - auto-login was not successful")
+            return False
         except Exception as e:
             logger.error(f"Login flow failed: {e}")
             return False
@@ -155,7 +152,7 @@ class TelkomCareScraper:
         return extractor
 
     def scrape(self, targets: list[str], dates: list,
-               mode: str = 'sid', progress_callback=None, cancel_event=None, resume_state=None, phase=None, resume_mode=False) -> dict:
+               mode: str = 'sid', progress_callback=None, cancel_event=None, pause_event=None, resume_state=None, phase=None, resume_mode=False) -> dict:
         """Scrape all targets for all dates. Browser stays alive for entire session."""
         if not self._logged_in:
             if not self.login():
@@ -217,28 +214,38 @@ class TelkomCareScraper:
                         save_resume_state(resume_state)
                     return results
 
+                # Pause check: block if paused, wake periodically to check cancel
+                while pause_event is not None and pause_event.is_set():
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
+                    pause_event.wait(timeout=0.3)
+
                 if resume_mode and key in completed_keys:
                     completed_item = find_completed_item(key)
                     status = (completed_item or {}).get("status", "ok")
                     error = (completed_item or {}).get("error")
                     path = (completed_item or {}).get("path")
 
-                    self.last_statuses[(target, date_obj)] = {"status": status, "error": error}
-
-                    if path:
-                        if target not in results:
-                            results[target] = {}
-                        results[target][date_obj] = path
+                    # Physical file validation: even if state says OK, re-check the PNG
+                    if status != "error" and path and not is_image_file_valid(path):
+                        print(f"State says OK but image missing/invalid, re-scraping: {target}")
+                        # Don't mark as completed; fall through to re-scrape
                     else:
-                        existing_path = get_screenshot_path(target, date_obj)
-                        if existing_path and existing_path.exists() and existing_path.stat().st_size > 0:
+                        self.last_statuses[(target, date_obj)] = {"status": status, "error": error}
+                        if path:
                             if target not in results:
                                 results[target] = {}
-                            results[target][date_obj] = str(existing_path)
+                            results[target][date_obj] = path
+                        else:
+                            existing_path = get_screenshot_path(target, date_obj)
+                            if existing_path and existing_path.exists() and existing_path.stat().st_size > 0:
+                                if target not in results:
+                                    results[target] = {}
+                                results[target][date_obj] = str(existing_path)
 
-                    print(f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} already completed")
-                    current_index += 1
-                    continue
+                        print(f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} already completed")
+                        current_index += 1
+                        continue
 
                 if resume_mode:
                     existing_path = get_screenshot_path(target, date_obj)
@@ -296,10 +303,6 @@ class TelkomCareScraper:
 
                                 relogin_ok = self.session.auto_login()
 
-                                if not relogin_ok and not self.headless:
-                                    print("[INFO] Auto re-login not available or failed. Switching to manual login...")
-                                    relogin_ok = self.session.wait_for_manual_login()
-
                                 if relogin_ok:
                                     new_extractor = self._recreate_extractor(mode)
                                     if new_extractor is None:
@@ -310,10 +313,7 @@ class TelkomCareScraper:
                                     print(f"\n[INFO] Session restored. Retrying target {target} (attempt {relogin_attempts}/3)...")
                                     continue
                                 else:
-                                    if self.headless:
-                                        print("[FAIL] Auto re-login failed in headless mode. No manual fallback available. Stopping scrape.")
-                                    else:
-                                        print("[FAIL] Re-login failed or cancelled. Stopping scrape.")
+                                    print(f"[FAIL] Auto re-login failed for {target}. Stopping scrape.")
                                     self.last_cancelled = True
                                     break
                             else:

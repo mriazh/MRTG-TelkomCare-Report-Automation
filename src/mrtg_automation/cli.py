@@ -1,7 +1,9 @@
 import logging
-from .shared.paths import ensure_directories
+
 from .shared.logging import setup_logging
+from .shared.paths import ensure_directories
 from .shared.validators import Validator
+
 
 def log_run_boundary(label: str, message: str):
     logger = logging.getLogger("mrtg_automation.cli")
@@ -45,10 +47,15 @@ def run_cli():
             report_choice = input("Pilihan (1/2): ").strip()
 
             if report_choice == '2':
-                from .report.excel import ExcelReportGenerator
                 from .config import Config
-                from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
+                from .report.excel import ExcelReportGenerator
                 from .shared.logging import setup_ocr_logger
+                from .shared.paths import (
+                    CONFIG_DIR,
+                    DATA_DIR,
+                    REPORTS_DIR,
+                    TEMPLATES_DIR,
+                )
 
                 # Setup OCR logger dynamically
                 setup_ocr_logger()
@@ -112,9 +119,14 @@ def run_cli():
                 else:
                     print("[FAIL] Gagal membuat report. Silakan cek error atau log di output/logs/app.log")
             elif report_choice == '1':
-                from .report.excel import ExcelReportGenerator
                 from .config import Config
-                from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
+                from .report.excel import ExcelReportGenerator
+                from .shared.paths import (
+                    CONFIG_DIR,
+                    DATA_DIR,
+                    REPORTS_DIR,
+                    TEMPLATES_DIR,
+                )
 
                 # Hardcoded defaults for Milestone 2 testing
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
@@ -191,6 +203,7 @@ def run_cli():
 import datetime
 from pathlib import Path
 
+
 def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> list:
     if date_str:
         if len(date_str) != 8 or not date_str.isdigit():
@@ -247,7 +260,7 @@ def _monthly_output_path(output_path: Path, month_key: str) -> Path:
     return output_path.parent / f"{output_path.stem}-{month_key}{output_path.suffix}"
 
 
-def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, manual_login_waiter=None, cancel_event=None, resume_state=None, resume_mode: bool = False) -> int:
+def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False) -> int:
     """
     Run scrape-only command for one or more dates.
     """
@@ -260,8 +273,8 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
     log_run_boundary("RUN START", f"scrape dates={len(dates)} targets={targets_filter}")
 
-    from .shared.paths import CONFIG_DIR
     from .report.mapping import parse_target_list
+    from .shared.paths import CONFIG_DIR
 
     target_file = CONFIG_DIR / "list_mrtg_targets.csv"
 
@@ -312,7 +325,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         save_resume_state(resume_state)
 
     from .scraper.telkomcare import TelkomCareScraper
-    scraper = TelkomCareScraper(headless=headless, manual_login_waiter=manual_login_waiter, cancel_event=cancel_event)
+    scraper = TelkomCareScraper(headless=headless, cancel_event=cancel_event)
 
     cancelled = False
     try:
@@ -330,7 +343,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
         if sid_targets:
             print(f"\nScraping {len(sid_targets)} SID targets across {len(dates)} dates...")
-            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid", cancel_event=cancel_event, resume_state=resume_state, phase="scrape_sid", resume_mode=resume_mode)
+            results_sid = scraper.scrape(targets=sid_targets, dates=dates, mode="sid", cancel_event=cancel_event, pause_event=pause_event, resume_state=resume_state, phase="scrape_sid", resume_mode=resume_mode)
             if getattr(scraper, "last_cancelled", False):
                 cancelled = True
                 log_run_boundary("RUN END", "scrape exit_code=130 stopped_by_user")
@@ -345,7 +358,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
                 save_resume_state(resume_state)
 
             print(f"\nScraping {len(graphtitle_targets)} Graph-title targets across {len(dates)} dates...")
-            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle", cancel_event=cancel_event, resume_state=resume_state, phase="scrape_graphtitle", resume_mode=resume_mode)
+            results_gt = scraper.scrape(targets=graphtitle_targets, dates=dates, mode="graphtitle", cancel_event=cancel_event, pause_event=pause_event, resume_state=resume_state, phase="scrape_graphtitle", resume_mode=resume_mode)
             if getattr(scraper, "last_cancelled", False):
                 cancelled = True
                 log_run_boundary("RUN END", "scrape exit_code=130 stopped_by_user")
@@ -401,13 +414,14 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 
 import os
 
-def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None, resume_state=None, resume_mode: bool = False) -> int:
+
+def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False) -> int:
     ensure_directories()
     setup_logging()
 
     from .config import Config
     from .report.excel import ExcelReportGenerator
-    from .shared.paths import CONFIG_DIR, DATA_DIR, TEMPLATES_DIR, REPORTS_DIR
+    from .shared.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR, TEMPLATES_DIR
 
     if date_str or (start_date_str and end_date_str):
         dates = parse_cli_dates(date_str, start_date_str, end_date_str)
@@ -502,7 +516,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
         month_summary = generator.generate(
             report_mode=report_mode, data_dir=DATA_DIR, template_path=template_file,
             output_path=month_output_file, mapping_file=mapping_file, list_file=list_file,
-            date_filter=date_filter, cancel_event=cancel_event, resume_state=resume_state,
+            date_filter=date_filter, cancel_event=cancel_event, pause_event=pause_event, resume_state=resume_state,
             resume_mode=resume_mode, phase=phase
         )
 
@@ -532,8 +546,8 @@ def run_full_command(
     no_images: bool = False,
     start_date_str: str = None,
     end_date_str: str = None,
-    manual_login_waiter=None,
     cancel_event=None,
+    pause_event=None,
     resume_state=None,
     resume_mode: bool = False
 ) -> int:
@@ -565,7 +579,7 @@ def run_full_command(
 
     log_run_boundary("RUN START", f"full targets={targets_filter} report_mode={report_mode}")
 
-    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, manual_login_waiter, cancel_event, resume_state, resume_mode)
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, cancel_event, pause_event, resume_state, resume_mode)
     if scrape_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during scrape.")
         log_run_boundary("RUN END", "full exit_code=130 stopped_during_scrape")
@@ -580,7 +594,7 @@ def run_full_command(
         resume_state["current_phase"] = "report_image" if report_mode == "image" else "report_ocr"
         save_resume_state(resume_state)
 
-    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event, resume_state, resume_mode)
+    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event, pause_event, resume_state, resume_mode)
     if report_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during report.")
         log_run_boundary("RUN END", "full exit_code=130 stopped_during_report")

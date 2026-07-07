@@ -1,8 +1,10 @@
 import re
-from datetime import datetime, date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Union
+
 from .paths import DATA_DIR
+
 
 def sanitize_target_id(target_id: str) -> str:
     """
@@ -29,3 +31,12 @@ def get_screenshot_path(target_id: str, date_obj: Union[datetime, date]) -> Path
     date_folder = date_obj.strftime("%Y%m%d")
     filename = build_canonical_filename(target_id, date_obj)
     return DATA_DIR / date_folder / filename
+
+
+def is_image_file_valid(image_path) -> bool:
+    """Check if an image file exists and is larger than 1KB."""
+    try:
+        p = Path(image_path) if not isinstance(image_path, Path) else image_path
+        return p.exists() and p.stat().st_size > 1024
+    except Exception:
+        return False

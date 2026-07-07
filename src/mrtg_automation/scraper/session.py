@@ -5,27 +5,28 @@ Used by TelkomCare scraper to maintain login session across runs.
 Supports automatic Gemini CAPTCHA solving + TOTP login with manual fallback.
 Subsequent runs reuse cookies for persistence.
 """
-import logging
-import json
-from pathlib import Path
-import time
-import pyotp
 import base64
-import urllib.request
-import urllib.error
+import json
+import logging
 import re
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
+
+import pyotp
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, WebDriverException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from selenium.webdriver.firefox.options import Options as FirefoxOptions
-from selenium.webdriver.edge.service import Service as EdgeService
-from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager, ChromeType
 from webdriver_manager.firefox import GeckoDriverManager
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
@@ -43,15 +44,14 @@ class SessionManager:
 
     Profile dir: ~/.mrtg-scraper-profile (or override via profile_dir arg)
     Supports Chrome, Chromium, Firefox, and Edge via config.
-    Supports automatic Gemini CAPTCHA solving + TOTP login with manual fallback.
+    Supports automatic Gemini CAPTCHA solving + TOTP login.
     """
 
-    def __init__(self, profile_dir: str = None, headless: bool = True, base_url: str = 'http://telkomcare.telkom.co.id', manual_login_waiter=None, cancel_event=None, config=None):
+    def __init__(self, profile_dir: str = None, headless: bool = True, base_url: str = 'https://telkomcare.telkom.co.id', cancel_event=None, config=None):
         self.profile_dir = Path(profile_dir) if profile_dir else Path.home() / '.mrtg-scraper-profile'
         self.headless = headless
         self.base_url = base_url
         self.driver = None
-        self.manual_login_waiter = manual_login_waiter
         self.cancel_event = cancel_event
         if config is None:
             from mrtg_automation.config import Config
@@ -142,7 +142,17 @@ class SessionManager:
         """
         if self.driver is None:
             return False
-        current_url = self.driver.current_url
+        try:
+            current_url = self.driver.current_url
+        except WebDriverException:
+            if self.driver.window_handles:
+                try:
+                    self.driver.switch_to.window(self.driver.window_handles[0])
+                    current_url = self.driver.current_url
+                except (WebDriverException, IndexError):
+                    return False
+            else:
+                return False
         parsed = urlparse(current_url)
         path = parsed.path.lower()
 
@@ -230,81 +240,6 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Failed to load cookies: {e}")
             return False
-
-    def wait_for_manual_login(self) -> bool:
-        """Pause for user to login manually.
-
-        Requires the current session to already be non-headless (visible mode).
-        Closes existing driver, opens a new one on the base URL, prompts user
-        to solve CAPTCHA + MFA, then saves cookies and restarts the driver
-        with the original headless setting.
-
-        Returns True if login completed and session cookies saved.
-        Returns False if cancelled or login failed.
-        """
-        if self._is_cancelled(): return False
-
-        # Save the current headless state to restore afterward.
-        original_headless = self.headless
-
-        # Always close existing driver before starting fresh for login
-        self.close()
-
-        try:
-            if self._is_cancelled(): return False
-
-            if self.headless:
-                logger.warning("wait_for_manual_login called in headless mode — browser will stay headless, user will not see the login page.")
-
-            self.start()
-            if self._is_cancelled(): return False
-            self.driver.get(self.base_url)
-            if self._is_cancelled(): return False
-            print("\n" + "=" * 70)
-            print("MANUAL LOGIN REQUIRED")
-            print("=" * 70)
-            visible = "visible" if not self.headless else "headless"
-            print(f"1. Browser is now open ({visible}) for you to interact")
-            print("2. Navigate to TelkomCare login page if not already there")
-            print("3. Solve the captcha (image-based, e.g., 'c8g')")
-            print("4. Enter username + password")
-            print("5. Open Microsoft Authenticator app on your phone")
-            print("6. Enter the 6-digit OTP code shown in app")
-            print("7. Wait until you see the MRTG dashboard")
-            print("8. Come back here and press Enter to continue")
-            print("=" * 70)
-            if self.manual_login_waiter is not None:
-                result = self.manual_login_waiter()
-                if result is False or self._is_cancelled():
-                    print("[STOP] Manual login cancelled by user.")
-                    return False
-            else:
-                input("\nPress Enter after login is complete and dashboard is visible...")
-                if self._is_cancelled(): return False
-            logger.info("Manual login detected. Saving cookies and restoring configured session.")
-            if not self.save_cookies():
-                logger.error("Failed to save cookies after login")
-                self.close()
-                self.headless = original_headless
-                return False
-
-            self.close()
-            self.headless = original_headless
-
-            if not self.start():
-                logger.error("Failed to restart browser after login")
-                return False
-
-            if not self.load_cookies():
-                logger.error("Failed to load cookies after manual login")
-                self.close()
-                return False
-
-            self.driver.refresh()
-            return True
-        finally:
-            # Always restore the configured headless setting
-            self.headless = original_headless
 
     def close(self) -> None:
         """Quit browser and release resources. Idempotent."""

@@ -1,11 +1,13 @@
 import json
-import urllib.request
 import urllib.error
-from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool
-from PySide6.QtWidgets import QMessageBox, QProgressDialog
+import urllib.request
+
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtCore import QUrl
+from PySide6.QtWidgets import QMessageBox, QProgressDialog
+
 from mrtg_automation import app_info
+
 
 def parse_version(version_str):
     # Remove 'v' prefix if present

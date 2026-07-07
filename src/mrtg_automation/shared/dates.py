@@ -1,5 +1,6 @@
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Union
+
 
 def generate_date_range(start_date: Union[datetime, date], end_date: Union[datetime, date]) -> list[date]:
     """

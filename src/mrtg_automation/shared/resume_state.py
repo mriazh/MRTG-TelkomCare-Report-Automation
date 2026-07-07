@@ -1,7 +1,8 @@
 import json
 import logging
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 from .paths import STATE_DIR
 
 logger = logging.getLogger("mrtg_automation.shared.resume_state")

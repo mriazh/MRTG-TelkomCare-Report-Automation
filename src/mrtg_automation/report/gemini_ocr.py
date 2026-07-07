@@ -4,8 +4,8 @@ import base64
 import json
 import logging
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 

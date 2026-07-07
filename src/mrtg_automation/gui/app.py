@@ -1,34 +1,48 @@
-import sys
-import os
-import io
 import contextlib
+import io
+import logging
+import os
+import sys
 import threading
 
-
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QComboBox, QCheckBox, QPushButton, QTextEdit, QLabel,
-    QFormLayout, QGroupBox, QMessageBox, QToolButton, QMenu,
-    QDateEdit
-)
-from PySide6.QtCore import QThread, Signal, QObject, QUrl, QDate
+from PySide6.QtCore import QDate, QObject, QThread, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDateEdit,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QTextEdit,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from mrtg_automation import app_info
+from mrtg_automation.cli import run_full_command, run_report_command, run_scrape_command
 from mrtg_automation.gui.about_dialog import show_about_dialog
 from mrtg_automation.gui.update_checker import UpdateManager
-
-from mrtg_automation.cli import run_scrape_command, run_report_command, run_full_command
 from mrtg_automation.shared.paths import REPORTS_DIR, ROOT_DIR
 from mrtg_automation.shared.resume_state import (
-    load_resume_state, save_resume_state, clear_resume_state,
-    has_unfinished_resume_state, format_resume_summary
+    clear_resume_state,
+    format_resume_summary,
+    has_unfinished_resume_state,
+    load_resume_state,
+    save_resume_state,
 )
+
 
 class Worker(QObject):
     log_signal = Signal(str)
     finished_signal = Signal(int)
-    manual_login_required = Signal()
 
     def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str,
                  targets, report_mode, headless, resume_state=None, resume_mode=False):
@@ -43,97 +57,66 @@ class Worker(QObject):
         self.headless = headless
         self.resume_state = resume_state
         self.resume_mode = resume_mode
-        self.login_event = threading.Event()
         self.cancel_event = threading.Event()
+        self.pause_event = threading.Event()
 
     def request_stop(self):
         self.cancel_event.set()
-        self.login_event.set()
-        self.log_signal.emit("Stop requested. Cancelling startup/login or waiting for current item to finish...")
-
-    def wait_for_manual_login_gui(self):
-        self.log_signal.emit("MANUAL LOGIN REQUIRED")
-        self.log_signal.emit("Complete captcha/MFA in the opened browser, then click 'Continue After Login' in the GUI.")
-        self.login_event.clear()
-        self.manual_login_required.emit()
-
-        while not self.cancel_event.is_set():
-            if self.login_event.wait(0.2):
-                break
-
-        if self.cancel_event.is_set():
-            self.log_signal.emit("Manual login cancelled by user.")
-            return False
-        return True
+        self.pause_event.clear()
+        try:
+            self.log_signal.emit("Stop requested. Cancelling startup/login or waiting for current item to finish...")
+        except RuntimeError:
+            pass  # Ignore if Qt window/signal source is destroyed during app close
 
     def run(self):
-        def clean_selenium_stacktrace(text: str) -> str:
-            """Remove Selenium stacktrace noise from log messages for GUI display.
-            Keeps the first line (error summary) but removes stacktrace lines.
-            """
-            lines = text.splitlines()
-            if not lines:
-                return text
-            
-            # Keep first line, filter out stacktrace lines
-            clean_lines = [lines[0]]
-            stacktrace_started = False
-            for line in lines[1:]:
-                stripped = line.strip()
-                # Detect start of stacktrace
-                if any(marker in stripped for marker in [
-                    "Stacktrace:",
-                    "Chromedriver!",
-                    "(Session info:",
-                    "For documentation on this error",
-                    "Build info:",
-                    "System info:",
-                    "Driver info:",
-                ]):
-                    stacktrace_started = True
-                    continue
-                # Skip indented stacktrace lines (memory addresses, etc.)
-                if stacktrace_started and (stripped.startswith("#") or 
-                    any(c in stripped for c in ["0x", "0X"]) or
-                    stripped.endswith("+")):
-                    continue
-                if stacktrace_started and not stripped:
-                    continue
-                # If we hit a non-stacktrace line after stacktrace started, include it
-                if stacktrace_started:
-                    stacktrace_started = False
-                    clean_lines.append(line)
-                elif not stacktrace_started:
-                    clean_lines.append(line)
-            
-            result = "\n".join(clean_lines)
-            # Add truncation indicator if we removed content
-            if len(result) < len(text):
-                result = result.rstrip() + " [...]"
-            return result
+        def _is_stacktrace_noise(line: str) -> bool:
+            """Check if a single line is Selenium/OS stacktrace noise to be skipped."""
+            stripped = line.strip()
+            if not stripped:
+                return True
+            noise_markers = [
+                "Stacktrace:", "Chromedriver!", "(Session info:",
+                "For documentation on this error", "Build info:",
+                "System info:", "Driver info:", "KERNEL32!", "Ntdll!",
+            ]
+            for marker in noise_markers:
+                if marker in stripped:
+                    return True
+            if stripped.startswith("0x") or stripped.startswith("0X"):
+                return True
+            if stripped.startswith("#") and any(c in stripped for c in ["0x", "0X"]):
+                return True
+            if stripped.endswith("+"):
+                return True
+            return False
 
         class StreamRedirector(io.StringIO):
+            """Redirects stdout/stderr to the GUI log panel.
+            Simple real-time line filter: buffers only to assemble complete lines,
+            processes each line immediately, and skips stacktrace noise lines.
+            """
+
             def __init__(self, signal):
                 super().__init__()
                 self.signal = signal
                 self._buffer = ""
 
             def write(self, text):
-                if text.strip():
-                    # Buffer text to handle multi-line messages
+                if text:
                     self._buffer += text
-                    # Emit when we have a complete line
                     while "\n" in self._buffer:
                         line, self._buffer = self._buffer.split("\n", 1)
-                        cleaned = clean_selenium_stacktrace(line)
-                        self.signal.emit(cleaned)
+                        if not _is_stacktrace_noise(line):
+                            self.signal.emit(line.strip())
                 super().write(text)
 
             def flush(self):
-                if self._buffer:
-                    cleaned = clean_selenium_stacktrace(self._buffer)
-                    self.signal.emit(cleaned)
-                    self._buffer = ""
+                if self._buffer.strip() and not _is_stacktrace_noise(self._buffer):
+                    try:
+                        self.signal.emit(self._buffer.strip())
+                    except RuntimeError:
+                        pass  # Qt object already deleted; ignore during shutdown
+                self._buffer = ""
                 super().flush()
 
         redirector = StreamRedirector(self.log_signal)
@@ -161,8 +144,8 @@ class Worker(QObject):
                         headless=self.headless,
                         start_date_str=s_str,
                         end_date_str=e_str,
-                        manual_login_waiter=self.wait_for_manual_login_gui,
                         cancel_event=self.cancel_event,
+                        pause_event=self.pause_event,
                         resume_state=self.resume_state,
                         resume_mode=self.resume_mode
                     )
@@ -174,6 +157,7 @@ class Worker(QObject):
                         start_date_str=s_str,
                         end_date_str=e_str,
                         cancel_event=self.cancel_event,
+                        pause_event=self.pause_event,
                         resume_state=self.resume_state,
                         resume_mode=self.resume_mode
                     )
@@ -186,8 +170,8 @@ class Worker(QObject):
                         no_images=False,
                         start_date_str=s_str,
                         end_date_str=e_str,
-                        manual_login_waiter=self.wait_for_manual_login_gui,
                         cancel_event=self.cancel_event,
+                        pause_event=self.pause_event,
                         resume_state=self.resume_state,
                         resume_mode=self.resume_mode
                     )
@@ -362,21 +346,17 @@ class MainWindow(QMainWindow):
         self.run_btn = QPushButton("Run")
         self.run_btn.clicked.connect(self.run_command)
 
+        self.pause_btn = QPushButton("Pause")
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.clicked.connect(self.pause_command)
+
         self.stop_btn = QPushButton("Stop")
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_command)
 
-        self.continue_login_btn = QPushButton("Continue After Login")
-        self.continue_login_btn.setEnabled(False)
-        self.continue_login_btn.clicked.connect(self.continue_after_login)
-
-        self.clear_log_btn = QPushButton("Clear Log")
-        self.clear_log_btn.clicked.connect(self.clear_log)
-
         buttons_layout.addWidget(self.run_btn)
+        buttons_layout.addWidget(self.pause_btn)
         buttons_layout.addWidget(self.stop_btn)
-        buttons_layout.addWidget(self.continue_login_btn)
-        buttons_layout.addWidget(self.clear_log_btn)
         main_layout.addLayout(buttons_layout)
 
         self.log_text = QTextEdit()
@@ -399,25 +379,29 @@ class MainWindow(QMainWindow):
     def log_message(self, message):
         self.log_text.append(message)
 
-    def clear_log(self):
-        self.log_text.clear()
-
     def open_output_folder(self):
         try:
             os.startfile(REPORTS_DIR)
         except Exception as e:
             self.log_message(f"Could not open output folder: {e}")
 
-    def continue_after_login(self):
-        if self.worker:
-            self.log_message("Continuing after manual login...")
-            self.worker.login_event.set()
-            self.continue_login_btn.setEnabled(False)
+    def pause_command(self):
+        if self.worker is None:
+            return
+        if self.pause_btn.text() == "Pause":
+            self.worker.pause_event.set()
+            self.pause_btn.setText("Continue")
+            self.log_message("Paused — will finish current item then wait.")
+        else:
+            self.worker.pause_event.clear()
+            self.pause_btn.setText("Pause")
+            self.log_message("Resumed.")
 
     def stop_command(self):
         if self.worker:
             self.worker.request_stop()
             self.stop_btn.setEnabled(False)
+            self.pause_btn.setEnabled(False)
             state = load_resume_state()
             if state:
                 state["status"] = "stopped"
@@ -453,6 +437,8 @@ class MainWindow(QMainWindow):
             return
 
         self.run_btn.setEnabled(False)
+        self.pause_btn.setEnabled(True)
+        self.pause_btn.setText("Pause")
         self.stop_btn.setEnabled(True)
         self.log_message("--- Starting Task ---")
 
@@ -512,7 +498,6 @@ class MainWindow(QMainWindow):
         self.worker_thread.started.connect(self.worker.run)
         self.worker.log_signal.connect(self.log_message)
         self.worker.finished_signal.connect(self.on_worker_finished)
-        self.worker.manual_login_required.connect(lambda: self.continue_login_btn.setEnabled(True))
 
         self.worker.finished_signal.connect(self.worker_thread.quit)
         self.worker.finished_signal.connect(self.worker.deleteLater)
@@ -538,8 +523,31 @@ class MainWindow(QMainWindow):
                 save_resume_state(state)
 
         self.run_btn.setEnabled(True)
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.setText("Pause")
         self.stop_btn.setEnabled(False)
-        self.continue_login_btn.setEnabled(False)
+
+    def closeEvent(self, event):
+        try:
+            if getattr(self, "worker", None) is not None:
+                try:
+                    self.worker.request_stop()
+                except RuntimeError:
+                    pass
+            thread = getattr(self, "worker_thread", None)
+            if thread is not None:
+                try:
+                    if thread.isRunning():
+                        thread.quit()
+                        if not thread.wait(15000):
+                            thread.terminate()
+                            thread.wait(3000)
+                except RuntimeError:
+                    pass  # C++ object already deleted
+        finally:
+            self.worker = None
+            self.worker_thread = None
+        event.accept()
 
 def main():
     app = QApplication(sys.argv)
