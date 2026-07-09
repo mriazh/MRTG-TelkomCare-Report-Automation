@@ -21,7 +21,7 @@ For Windows users, we provide two ready-to-use distribution formats in the relea
 - **Installer EXE (Recommended)**: Best for most users. It installs the application, dependencies, and creates convenient shortcuts.
 - **Portable ZIP**: Best for users who prefer an extract-and-run approach without modifying system folders.
 
-> **Note:** **Google Chrome** must be installed on your system for the scraper to function.
+> **Note:** A supported web browser (**Google Chrome**, **Microsoft Edge**, **Mozilla Firefox**, or **Chromium**) must be installed on your system. The application features automatic browser detection in both GUI and CLI.
 
 ---
 
@@ -62,6 +62,18 @@ The application supports multiple execution modes depending on your workflow:
 
 ---
 
+## 🌐 Browser Auto-Detection & Selection
+
+The application provides intelligent browser auto-detection and selection across Windows, Linux, and macOS:
+
+- **GUI Selection**: In the GUI **Configuration** panel, select from the **Browser** dropdown:
+  - **Auto-detect**: Scans your system and automatically selects the best available browser (showing the detected browser, e.g., `Auto-detect (Chrome detected)`).
+  - **Chrome**, **Edge**, **Firefox**, or **Chromium**: Explicitly selects a specific installed browser.
+- **Headless Toggle**: Check **Run browser headless** to run scraping in the background (once login session is established).
+- **Environment Configuration**: Set `BROWSER_TYPE` in `config/.env` to `auto`, `chrome`, `edge`, `firefox`, or `chromium`. Optionally specify `BROWSER_BINARY_LOCATION` to use a custom binary path.
+
+---
+
 ## 📂 Where Files Are Saved
 
 When you run the automation, your local files will be neatly organized into the following directories:
@@ -87,7 +99,7 @@ Linux users must run the application directly from source. This platform is not 
 
 **Prerequisites:**
 - Python 3.12 (specifically 3.12) and `venv` support
-- Google Chrome
+- A supported browser (Google Chrome, Microsoft Edge, Mozilla Firefox, or Chromium)
 - Visible desktop session, VNC, or X forwarding for manual TelkomCare login
 
 Assuming you have cloned the repository and are currently in the project root directory, run the following:
