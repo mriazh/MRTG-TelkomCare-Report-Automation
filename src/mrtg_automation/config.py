@@ -3,6 +3,7 @@ import os
 
 from dotenv import load_dotenv
 
+from .shared.browser_detection import detect_default_browser, find_browser_binary
 from .shared.paths import CONFIG_DIR
 
 logger = logging.getLogger('mrtg_automation.config')
@@ -25,11 +26,25 @@ class Config:
         self.MAX_GRAPH_RETRIES = int(os.getenv("MAX_GRAPH_RETRIES", 2))
 
         # Browser configuration
-        self.browser_type = os.getenv("BROWSER_TYPE", "chrome").lower()
-        if self.browser_type not in ["chrome", "chromium", "firefox", "edge"]:
-            logger.warning(f"Invalid BROWSER_TYPE '{self.browser_type}', defaulting to 'chrome'")
-            self.browser_type = "chrome"
+        self.browser_type = os.getenv("BROWSER_TYPE", "auto").lower()
+        if self.browser_type not in ["auto", "chrome", "chromium", "firefox", "edge"]:
+            logger.warning(f"Invalid BROWSER_TYPE '{self.browser_type}', defaulting to 'auto'")
+            self.browser_type = "auto"
+        self.effective_browser_type = 'chrome'
         self.browser_binary = os.getenv("BROWSER_BINARY_LOCATION")
+        self.resolve_browser()
+
+    def resolve_browser(self):
+        """Resolve effective browser type and binary location."""
+        if self.browser_type == "auto":
+            detected_type, detected_binary = detect_default_browser()
+            self.effective_browser_type = detected_type
+            if not self.browser_binary and detected_binary:
+                self.browser_binary = detected_binary
+        else:
+            self.effective_browser_type = self.browser_type
+            if not self.browser_binary:
+                self.browser_binary = find_browser_binary(self.browser_type)
 
         # Auto-login credentials (optional)
         self.auto_login_enabled = os.getenv("AUTO_LOGIN_ENABLED", "false").lower() in ("true", "1", "yes")

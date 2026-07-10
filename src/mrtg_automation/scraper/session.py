@@ -62,7 +62,7 @@ class SessionManager:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _build_options(self):
-        browser_type = self.config.browser_type
+        browser_type = getattr(self.config, 'effective_browser_type', self.config.browser_type)
         browser_binary = self.config.browser_binary
 
         if browser_type == 'firefox':
@@ -106,7 +106,7 @@ class SessionManager:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
         opts = self._build_options()
-        browser_type = self.config.browser_type
+        browser_type = getattr(self.config, 'effective_browser_type', self.config.browser_type)
 
         try:
             if browser_type == 'firefox':
