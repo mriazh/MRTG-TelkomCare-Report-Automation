@@ -30,6 +30,9 @@ from mrtg_automation import app_info
 from mrtg_automation.cli import run_full_command, run_report_command, run_scrape_command
 from mrtg_automation.gui.about_dialog import show_about_dialog
 from mrtg_automation.gui.update_checker import UpdateManager
+from mrtg_automation.shared.browser_detection import (
+    get_browser_display_name,
+)
 from mrtg_automation.shared.paths import REPORTS_DIR, ROOT_DIR
 from mrtg_automation.shared.resume_state import (
     clear_resume_state,
@@ -45,7 +48,7 @@ class Worker(QObject):
     finished_signal = Signal(int)
 
     def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str,
-                 targets, report_mode, headless, resume_state=None, resume_mode=False):
+                 targets, report_mode, headless, browser_type="auto", resume_state=None, resume_mode=False):
         super().__init__()
         self.mode = mode
         self.date_mode = date_mode
@@ -55,6 +58,7 @@ class Worker(QObject):
         self.targets = targets
         self.report_mode = report_mode
         self.headless = headless
+        self.browser_type = browser_type
         self.resume_state = resume_state
         self.resume_mode = resume_mode
         self.cancel_event = threading.Event()
@@ -131,6 +135,13 @@ class Worker(QObject):
                 d_str = self.date_str if self.date_mode == "Single Date" else None
                 s_str = self.start_date_str if self.date_mode == "Date Range" else None
                 e_str = self.end_date_str if self.date_mode == "Date Range" else None
+
+                if self.mode in ("Scrape", "Full Pipeline"):
+                    os.environ["BROWSER_TYPE"] = self.browser_type
+                    from mrtg_automation.config import Config
+                    cfg = Config()
+                    effective = getattr(cfg, 'effective_browser_type', getattr(cfg, 'browser_type', 'chrome'))
+                    self.log_signal.emit(f"Browser configuration: {cfg.browser_type} (effective: {effective})")
 
                 if self.date_mode == "Single Date":
                     self.log_signal.emit(f"Date: {self.date_str}")
@@ -246,6 +257,11 @@ class MainWindow(QMainWindow):
                     pass
                 self.targets_cb.setCurrentText(state.get("targets_filter", "image"))
                 self.report_mode_cb.setCurrentText(state.get("report_mode", "image"))
+                if state.get("browser_type"):
+                    b_type = state.get("browser_type").lower()
+                    idx = self.browser_cb.findData(b_type)
+                    if idx >= 0:
+                        self.browser_cb.setCurrentIndex(idx)
                 self.run_btn.setText("Resume")
             elif msg.clickedButton() == btn_new:
                 clear_resume_state()
@@ -336,7 +352,24 @@ class MainWindow(QMainWindow):
         self.report_mode_cb.addItems(["image", "ocr"])
         form_layout.addRow("Report Mode:", self.report_mode_cb)
 
-        self.headless_cb = QCheckBox("Run Chrome headless")
+        self.browser_cb = QComboBox()
+        for b_type in ["Chrome", "Edge", "Firefox", "Chromium"]:
+            display_name = get_browser_display_name(b_type)
+            self.browser_cb.addItem(display_name, b_type.lower())
+            if "(Not Installed)" in display_name:
+                idx = self.browser_cb.count() - 1
+                item = self.browser_cb.model().item(idx)
+                if item is not None:
+                    item.setEnabled(False)
+        installed_idx = -1
+        for i in range(self.browser_cb.count()):
+            if "(Installed)" in self.browser_cb.itemText(i):
+                installed_idx = i
+                break
+        self.browser_cb.setCurrentIndex(installed_idx if installed_idx >= 0 else 0)
+        form_layout.addRow("Browser:", self.browser_cb)
+
+        self.headless_cb = QCheckBox("Run browser headless")
         form_layout.addRow("", self.headless_cb)
 
         controls_group.setLayout(form_layout)
@@ -365,16 +398,28 @@ class MainWindow(QMainWindow):
 
         self.on_mode_changed(self.mode_cb.currentText())
 
+    def get_selected_browser_type(self) -> str:
+        data = self.browser_cb.currentData()
+        if data is None:
+            return self.browser_cb.currentText()
+        return data
+
     def on_mode_changed(self, text):
         if text == "Scrape":
             self.targets_cb.setEnabled(True)
             self.report_mode_cb.setEnabled(False)
+            self.browser_cb.setEnabled(True)
+            self.headless_cb.setEnabled(True)
         elif text == "Report":
             self.targets_cb.setEnabled(False)
             self.report_mode_cb.setEnabled(True)
+            self.browser_cb.setEnabled(False)
+            self.headless_cb.setEnabled(False)
         elif text == "Full Pipeline":
             self.targets_cb.setEnabled(True)
             self.report_mode_cb.setEnabled(True)
+            self.browser_cb.setEnabled(True)
+            self.headless_cb.setEnabled(True)
 
     def log_message(self, message):
         self.log_text.append(message)
@@ -468,6 +513,7 @@ class MainWindow(QMainWindow):
                 "dates": dates_for_state,
                 "targets_filter": self.targets_cb.currentText(),
                 "report_mode": self.report_mode_cb.currentText(),
+                "browser_type": self.get_selected_browser_type(),
                 "current_phase": phase,
                 "total_items": 0,
                 "completed_items_count": 0,
@@ -490,6 +536,7 @@ class MainWindow(QMainWindow):
             targets=self.targets_cb.currentText(),
             report_mode=self.report_mode_cb.currentText(),
             headless=self.headless_cb.isChecked(),
+            browser_type=self.get_selected_browser_type(),
             resume_state=resume_state,
             resume_mode=resume_mode
         )
