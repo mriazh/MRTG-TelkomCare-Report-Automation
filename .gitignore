@@ -27,6 +27,8 @@ temp_screenshots/
 config/SID-MRTG.txt
 config/GRAPH-TITLE-MRTG.txt
 config/report-items.txt
+config/list_mrtg_targets.csv
+CONTEXT.md
 
 # Editor / IDE
 .vscode/

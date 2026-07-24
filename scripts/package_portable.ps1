@@ -9,6 +9,7 @@ Set-Location $RootDir
 
 $DistDir = Join-Path $RootDir "dist\MRTG-TelkomCare"
 $ExePath = Join-Path $DistDir "MRTG-TelkomCare.exe"
+$ManifestPath = Join-Path $DistDir "packaging.manifest"
 
 if (-not (Test-Path $ExePath)) {
     Write-Host "Error: Cannot find $ExePath" -ForegroundColor Red
@@ -16,17 +17,31 @@ if (-not (Test-Path $ExePath)) {
     exit 1
 }
 
-# Read version
+if (-not (Test-Path $ManifestPath)) {
+    Write-Host "Error: Packaging manifest not found at $ManifestPath" -ForegroundColor Red
+    Write-Host "Please run build_exe.ps1 first to generate the manifest" -ForegroundColor Yellow
+    exit 1
+}
+
+# Read version - fail-fast if app_info.py missing or APP_VERSION not parseable
 $AppInfoPath = Join-Path $RootDir "src\mrtg_automation\app_info.py"
-$AppVersion = "0.0.0"
-if (Test-Path $AppInfoPath) {
-    $Lines = Get-Content $AppInfoPath
-    foreach ($Line in $Lines) {
-        if ($Line -match 'APP_VERSION\s*=\s*"([^"]+)"') {
-            $AppVersion = $matches[1]
-            break
-        }
+if (-not (Test-Path $AppInfoPath)) {
+    Write-Host "Error: Cannot find $AppInfoPath" -ForegroundColor Red
+    exit 1
+}
+
+$AppVersion = $null
+$Lines = Get-Content $AppInfoPath
+foreach ($Line in $Lines) {
+    if ($Line -match 'APP_VERSION\s*=\s*"([^"]+)"') {
+        $AppVersion = $matches[1]
+        break
     }
+}
+
+if (-not $AppVersion) {
+    Write-Host "Error: Failed to parse APP_VERSION from $AppInfoPath" -ForegroundColor Red
+    exit 1
 }
 
 $ReleaseDir = Join-Path $RootDir "release"
@@ -35,160 +50,218 @@ if (-not (Test-Path $ReleaseDir)) {
 }
 
 $ZipName = "MRTG-TelkomCare-v$AppVersion-portable.zip"
-$ZipPath = Join-Path $ReleaseDir $ZipName
+$ExpectedZipPath = Join-Path $ReleaseDir $ZipName
 
-if (Test-Path $ZipPath) {
-    Remove-Item -Path $ZipPath -Force
-}
-
-# Validate dist does not contain forbidden files before zipping
-$ForbiddenFiles = @(
-    "config\.env",
-    "config\SID-MRTG.txt",
-    "config\GRAPH-TITLE-MRTG.txt",
-    "config\report-items.txt"
-)
-$ForbiddenDirs = @(
-    "data\MRTG-Data",
-    "output"
-)
-
-foreach ($file in $ForbiddenFiles) {
-    $checkFile = Join-Path $DistDir $file
-    if (Test-Path $checkFile) {
-        Write-Host "Error: Forbidden file found in dist before packaging: $file" -ForegroundColor Red
-        Write-Host "Please clean dist or run build_exe.ps1 -Clean" -ForegroundColor Yellow
+if (Test-Path $ExpectedZipPath) {
+    if ($Force) {
+        Write-Host "Force specified: removing existing ZIP: $ExpectedZipPath" -ForegroundColor Yellow
+        Remove-Item -Path $ExpectedZipPath -Force
+    } else {
+        Write-Host "Error: Output ZIP already exists at $ExpectedZipPath. Use -Force to overwrite." -ForegroundColor Red
         exit 1
     }
 }
 
-foreach ($dir in $ForbiddenDirs) {
-    $checkDir = Join-Path $DistDir $dir
-    if (Test-Path $checkDir) {
-        $items = Get-ChildItem -Path $checkDir -Recurse | Where-Object { -not $_.PSIsContainer }
-        if ($items.Count -gt 0) {
-            Write-Host "Error: Forbidden files found in directory before packaging: $dir" -ForegroundColor Red
-            Write-Host "Please clean dist or run build_exe.ps1 -Clean" -ForegroundColor Yellow
-            exit 1
-        }
+# Create clean staging directory for portable package
+$StagingDir = Join-Path $RootDir "staging\MRTG-TelkomCare-Portable"
+if (Test-Path $StagingDir) {
+    Remove-Item -Recurse -Force $StagingDir
+}
+New-Item -ItemType Directory -Force -Path $StagingDir | Out-Null
+
+Write-Host "Populating clean staging directory from manifest..." -ForegroundColor Cyan
+
+# Read manifest entries
+$ManifestEntries = Get-Content $ManifestPath -Encoding UTF8
+
+$MissingFiles = 0
+foreach ($relPath in $ManifestEntries) {
+    $srcPath = Join-Path $DistDir $relPath
+    $dstPath = Join-Path $StagingDir $relPath
+
+    if (-not (Test-Path $srcPath)) {
+        Write-Host "Error: Required file missing from dist: $relPath" -ForegroundColor Red
+        $MissingFiles++
+        continue
     }
-}
 
-Write-Host "Creating portable ZIP: $ZipName using tar.exe" -ForegroundColor Cyan
-Set-Location $RootDir
-
-$PaddleLibsSrc = ".venv312\Lib\site-packages\paddle\libs"
-$PaddleLibsDst = "dist\MRTG-TelkomCare\_internal\paddle\libs"
-if (Test-Path $PaddleLibsSrc) {
-    if (-not (Test-Path $PaddleLibsDst)) {
-        New-Item -ItemType Directory -Force -Path $PaddleLibsDst | Out-Null
+    $dstDir = Split-Path -Parent $dstPath
+    if (-not (Test-Path $dstDir)) {
+        New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
     }
-    Copy-Item -Path "$PaddleLibsSrc\*" -Destination $PaddleLibsDst -Recurse -Force
+    Copy-Item -Path $srcPath -Destination $dstPath -Force
+    Write-Host "  Copied: $relPath" -ForegroundColor Gray
 }
 
-$CheckPath = "dist\MRTG-TelkomCare\_internal\paddle\libs\mklml.dll"
-if (Test-Path $CheckPath) {
-    Write-Host "Confirmed mklml.dll exists right before tar: $CheckPath" -ForegroundColor Green
-} else {
-    Write-Host "Warning: mklml.dll is MISSING before tar! Defender might have deleted it!" -ForegroundColor Red
-}
-
-$MaxRetries = 10
-$RetryCount = 0
-$ZipSuccess = $false
-
-while (-not $ZipSuccess -and $RetryCount -lt $MaxRetries) {
-    Write-Host "Creating portable ZIP: $ZipName using tar.exe (Attempt $($RetryCount + 1))" -ForegroundColor Cyan
-    & tar.exe -a -cf $ZipPath -C dist MRTG-TelkomCare
-    $TarExitCode = $LASTEXITCODE
-    
-    if ($TarExitCode -eq 0 -and (Test-Path $ZipPath)) {
-        # Verify the tricky DLL is actually in the zip and wasn't skipped due to Defender lock
-        $ZipCheck = & tar.exe -tf $ZipPath | Select-String "mklml.dll"
-        if ($ZipCheck) {
-            $ZipSuccess = $true
-        } else {
-            Write-Host "Warning: mklml.dll missing from zip (likely Defender lock). Retrying in 5 seconds..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 5
-            Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue
-            $RetryCount++
-        }
-    } else {
-        Write-Host "Warning: tar.exe failed or zip not created. Retrying in 5 seconds..." -ForegroundColor Yellow
-        Start-Sleep -Seconds 5
-        $RetryCount++
-    }
-}
-Set-Location $RootDir
-
-if (-not $ZipSuccess) {
-    Write-Host "Error: tar.exe failed to create a valid zip containing all dependencies after $MaxRetries attempts." -ForegroundColor Red
+if ($MissingFiles -gt 0) {
+    Write-Host "Error: $MissingFiles required files missing from dist. Cannot create package." -ForegroundColor Red
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
     exit 1
 }
 
-$FileInfo = Get-Item $ZipPath
-$SizeMB = [math]::Round($FileInfo.Length / 1MB, 2)
+# Verify forbidden files are NOT in staging (should be excluded by manifest, but double-check)
+$ForbiddenFiles = @(
+    "config\.env",
+    "config\SID-MRTG.txt",
+    "config\GRAPH-TITLE-MRTG.txt",
+    "config\report-items.txt",
+    "config\list_mrtg_targets.csv"
+)
+$ForbiddenDirs = @(
+    "data",
+    "output"
+)
 
-Write-Host "Validating ZIP contents for forbidden files..." -ForegroundColor Cyan
+$ForbiddenFound = 0
+foreach ($file in $ForbiddenFiles) {
+    $checkFile = Join-Path $StagingDir $file
+    if (Test-Path $checkFile) {
+        Write-Host "Error: Forbidden file found in staging: $file" -ForegroundColor Red
+        $ForbiddenFound++
+    }
+}
+foreach ($dir in $ForbiddenDirs) {
+    $checkDir = Join-Path $StagingDir $dir
+    if (Test-Path $checkDir) {
+        $items = Get-ChildItem -Path $checkDir -Recurse -File
+        if ($items.Count -gt 0) {
+            Write-Host "Error: Forbidden files found in staging directory: $dir" -ForegroundColor Red
+            $ForbiddenFound++
+        }
+    }
+}
+
+if ($ForbiddenFound -gt 0) {
+    Write-Host "Error: $ForbiddenFound forbidden entries found in staging. Aborting." -ForegroundColor Red
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
+    exit 1
+}
+
+# FINAL STAGING MANIFEST VALIDATION: reject any file not in the manifest
+Write-Host "Validating staging manifest against generated manifest..." -ForegroundColor Cyan
+$AllStagedFiles = Get-ChildItem -Path $StagingDir -Recurse -File
+$StagingDirAbs = (Resolve-Path $StagingDir).Path
+$ManifestViolations = 0
+$ManifestSet = @{}
+foreach ($entry in $ManifestEntries) {
+    $ManifestSet[$entry] = $true
+}
+foreach ($file in $AllStagedFiles) {
+    $relPath = $file.FullName.Substring($StagingDirAbs.Length + 1).Replace('\', '/')
+    if (-not $ManifestSet.ContainsKey($relPath)) {
+        Write-Host "Error: Staged file not in manifest: $relPath" -ForegroundColor Red
+        $ManifestViolations++
+    }
+}
+
+if ($ManifestViolations -gt 0) {
+    Write-Host "Error: $ManifestViolations files in staging violate the manifest. Aborting." -ForegroundColor Red
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
+    exit 1
+}
+
+Write-Host "Staging manifest validation passed." -ForegroundColor Green
+
+# Check tar.exe availability - prefer the Windows libarchive tar in System32 over
+# any GNU tar (e.g. Git Bash) that may appear first in PATH
+$TarCmd = $null
+foreach ($candidate in @("$env:WINDIR\System32\tar.exe", "$env:WINDIR\Sysnative\tar.exe")) {
+    if (Test-Path $candidate) {
+        $TarCmd = $candidate
+        break
+    }
+}
+if (-not $TarCmd) {
+    $FoundTar = Get-Command tar.exe -ErrorAction SilentlyContinue
+    if ($FoundTar) {
+        $TarCmd = $FoundTar.Source
+    }
+}
+if (-not $TarCmd) {
+    Write-Host "Error: tar.exe compiler / utility not found." -ForegroundColor Red
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
+    exit 1
+}
+
+Write-Host "Creating portable ZIP: $ZipName using tar.exe from clean staging" -ForegroundColor Cyan
+$StagingParentDir = Join-Path $RootDir "staging"
+& $TarCmd -a -cf $ExpectedZipPath -C $StagingParentDir MRTG-TelkomCare-Portable
+$TarExitCode = $LASTEXITCODE
+
+if ($TarExitCode -ne 0 -or -not (Test-Path $ExpectedZipPath)) {
+    Write-Host "Error: tar.exe failed to create ZIP." -ForegroundColor Red
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
+    exit 1
+}
+
+# Verify ZIP contents
+Write-Host "Validating ZIP contents..." -ForegroundColor Cyan
 $BadZipEntries = 0
-$AllZipContents = & tar.exe -tf $ZipPath
+$AllZipContents = & $TarCmd -tf $ExpectedZipPath
 
 foreach ($line in $AllZipContents) {
     $normalizedLine = $line.Replace("\", "/")
-    # Ignore directory entries (they end with '/') for data and output folders
-    if ($normalizedLine -match "^MRTG-TelkomCare/config/\.env$" -or
-        $normalizedLine -match "MRTG-TelkomCare/config/SID-MRTG\.txt" -or
-        $normalizedLine -match "MRTG-TelkomCare/config/GRAPH-TITLE-MRTG\.txt" -or
-        $normalizedLine -match "MRTG-TelkomCare/config/report-items\.txt" -or
-        ($normalizedLine -match "MRTG-TelkomCare/data/MRTG-Data/.+" -and -not $normalizedLine.EndsWith("/")) -or
-        ($normalizedLine -match "MRTG-TelkomCare/output/.+" -and -not $normalizedLine.EndsWith("/"))) {
-        Write-Host "Error: Forbidden file found in ZIP: $line" -ForegroundColor Red
+    if ($normalizedLine -match "^MRTG-TelkomCare-Portable/config/\.env$" -or
+        $normalizedLine -match "MRTG-TelkomCare-Portable/config/SID-MRTG\.txt" -or
+        $normalizedLine -match "MRTG-TelkomCare-Portable/config/GRAPH-TITLE-MRTG\.txt" -or
+        $normalizedLine -match "MRTG-TelkomCare-Portable/config/report-items\.txt" -or
+        $normalizedLine -match "MRTG-TelkomCare-Portable/config/list_mrtg_targets\.csv$" -or
+        $normalizedLine -match "MRTG-TelkomCare-Portable/data/." -or
+        $normalizedLine -match "MRTG-TelkomCare-Portable/output/.") {
+        Write-Host "Error: Forbidden entry found in ZIP: $line" -ForegroundColor Red
         $BadZipEntries++
     }
 }
 
 if ($BadZipEntries -gt 0) {
     Write-Host "Error: ZIP validation failed. Found $BadZipEntries forbidden entries." -ForegroundColor Red
-    Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path $ExpectedZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
     exit 1
 }
 
-Write-Host "Validating ZIP contents for required safe files..." -ForegroundColor Cyan
+# Verify required files in ZIP
 $RequiredZipFiles = @(
-    "MRTG-TelkomCare/config/.env.example",
-    "MRTG-TelkomCare/config/list_mrtg_targets.csv",
-    "MRTG-TelkomCare/config/list_mrtg_data_position.txt",
-    "MRTG-TelkomCare/config/list_mrtg_data_position_img_only.txt",
-    "MRTG-TelkomCare/templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-    "MRTG-TelkomCare/templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
-    "MRTG-TelkomCare/assets/app_icon.ico",
-    "MRTG-TelkomCare/_internal/base_library.zip",
-    "MRTG-TelkomCare/_internal/paddlex/configs/pipelines/OCR.yaml",
-    "MRTG-TelkomCare/_internal/paddle/libs/mklml.dll"
+    "MRTG-TelkomCare-Portable/MRTG-TelkomCare.exe",
+    "MRTG-TelkomCare-Portable/_internal/base_library.zip",
+    "MRTG-TelkomCare-Portable/_internal/paddlex/configs/pipelines/OCR.yaml",
+    "MRTG-TelkomCare-Portable/_internal/paddle/libs/mklml.dll",
+    "MRTG-TelkomCare-Portable/config/.env.example",
+    "MRTG-TelkomCare-Portable/config/list_mrtg_targets.example.csv",
+    "MRTG-TelkomCare-Portable/config/list_mrtg_data_position.txt",
+    "MRTG-TelkomCare-Portable/config/list_mrtg_data_position_img_only.txt",
+    "MRTG-TelkomCare-Portable/templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+    "MRTG-TelkomCare-Portable/templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+    "MRTG-TelkomCare-Portable/assets/app_icon.ico"
 )
 
 $MissingZipFiles = 0
 foreach ($req in $RequiredZipFiles) {
-    # Replace backslashes since tar output will have forward slashes on Windows often, or we just string match
     $found = $false
     foreach ($line in $AllZipContents) {
-        $normalizedLine = $line.Replace("\", "/")
-        if ($normalizedLine -eq $req) {
+        if ($line.Replace("\", "/") -eq $req) {
             $found = $true
             break
         }
     }
     if (-not $found) {
-        Write-Host "Error: Required safe file MISSING from ZIP: $req" -ForegroundColor Red
+        Write-Host "Error: Required file MISSING from ZIP: $req" -ForegroundColor Red
         $MissingZipFiles++
     }
 }
 
 if ($MissingZipFiles -gt 0) {
-    Write-Host "Error: ZIP validation failed. Missing $MissingZipFiles required safe entries." -ForegroundColor Red
-    Remove-Item -Path $ZipPath -Force -ErrorAction SilentlyContinue
+    Write-Host "Error: ZIP validation failed. Missing $MissingZipFiles required entries." -ForegroundColor Red
+    Remove-Item -Path $ExpectedZipPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
     exit 1
 }
 
+# Clean up staging
+Remove-Item -Recurse -Force $StagingDir -ErrorAction SilentlyContinue
+
+$FileInfo = Get-Item $ExpectedZipPath
+$SizeMB = [math]::Round($FileInfo.Length / 1MB, 2)
+
 Write-Host "ZIP validation passed. bad_entries=0, all required files present." -ForegroundColor Green
-Write-Host "Success! Created $ZipPath ($SizeMB MB)" -ForegroundColor Green
+Write-Host "Success! Created $ExpectedZipPath ($SizeMB MB)" -ForegroundColor Green

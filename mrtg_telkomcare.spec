@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+PROJECT_ROOT = os.path.abspath(SPECPATH)
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files, copy_metadata, collect_dynamic_libs
 
@@ -24,7 +25,7 @@ for mod in ['imagesize', 'cv2', 'pyclipper', 'pypdfium2', 'bidi', 'shapely']:
 datas = []
 datas += collect_data_files('paddleocr')
 datas += collect_data_files('paddlex')
-datas.append(('.venv312/Lib/site-packages/paddlex/configs', 'paddlex/configs'))
+datas.append((os.path.join(PROJECT_ROOT, '.venv312', 'Lib', 'site-packages', 'paddlex', 'configs'), 'paddlex/configs'))
 
 # Add metadata for Paddlex and its dependencies so runtime version checks pass
 for pkg in ['paddlex', 'paddleocr', 'imagesize', 'opencv-contrib-python', 'pyclipper', 'pypdfium2', 'python-bidi', 'shapely']:

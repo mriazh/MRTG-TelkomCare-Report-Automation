@@ -21,8 +21,8 @@ This application provides a seamless **GUI** and **CLI** experience for operator
 
 For Windows operators, pre-packaged distribution formats are available on the releases page:
 
-- **Installer EXE (Recommended)**: Installs the application, configures shortcuts, and sets up dependencies automatically.
-- **Portable ZIP**: Extract-and-run package for portable execution without modifying system folders.
+- **Installer EXE (Recommended)**: `MRTG-TelkomCare-Setup-v1.0.1.exe` — installs the application, configures shortcuts, and sets up dependencies automatically.
+- **Portable ZIP**: `MRTG-TelkomCare-v1.0.1-portable.zip` — extract-and-run package for portable execution without modifying system folders.
 
 > **Browser Requirement:** At least one supported web browser (**Google Chrome**, **Microsoft Edge**, **Mozilla Firefox**, **Brave**, or **Chromium**) must be installed on your system.
 
@@ -38,12 +38,13 @@ For Windows operators, pre-packaged distribution formats are available on the re
    - Open `.env` in a text editor to configure TelkomCare base URLs and timeout settings.
    - *(Note: Passwords are not stored. You will log into TelkomCare manually in the browser when prompted).*
 2. **Prepare Network Targets**:
+   - Copy `config/list_mrtg_targets.example.csv` to `config/list_mrtg_targets.csv`
    - Edit `config/list_mrtg_targets.csv` in Excel or text editor.
    - Required columns: `type`, `target`, `ocr_enabled`, `image_enabled`.
    ```csv
    type,target,ocr_enabled,image_enabled
-   SID,4700001-0021497479,true,true
-   Graph-title,3598,true,true
+   SID,EXAMPLE-SID,true,true
+   Graph-title,EXAMPLE-GRAPH-TITLE,true,true
    ```
 
 ---
@@ -77,7 +78,7 @@ The application provides intelligent browser auto-detection and selection across
 ### 🪟 Windows Execution
 
 #### 1. Via Packaged Executable / Shortcut:
-- Double-click `MRTG-TelkomCare-Automation.exe` or launch via the Start Menu shortcut.
+- Double-click `MRTG-TelkomCare.exe` or launch via the Start Menu shortcut.
 
 #### 2. Via PowerShell (Source Code):
 ```powershell
@@ -140,10 +141,11 @@ python -m mrtg_automation full --date YYYYMMDD --targets all --report-mode ocr -
 ```
 
 #### 2. Via Packaged Executable CLI:
+After extracting `MRTG-TelkomCare-v1.0.1-portable.zip` or installing `MRTG-TelkomCare-Setup-v1.0.1.exe`, run:
 ```cmd
-MRTG-TelkomCare-Automation.exe scrape --date YYYYMMDD --targets all --browser chrome
-MRTG-TelkomCare-Automation.exe report --mode ocr --date YYYYMMDD
-MRTG-TelkomCare-Automation.exe full --date YYYYMMDD --targets all --report-mode ocr --browser edge
+MRTG-TelkomCare.exe scrape --date YYYYMMDD --targets all --browser chrome
+MRTG-TelkomCare.exe report --mode ocr --date YYYYMMDD
+MRTG-TelkomCare.exe full --date YYYYMMDD --targets all --report-mode ocr --browser edge
 ```
 
 ---

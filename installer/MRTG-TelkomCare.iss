@@ -1,6 +1,6 @@
 #define MyAppName "MRTG TelkomCare Report Automation"
 #ifndef MyAppVersion
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #endif
 #define MyAppPublisher "mriazh"
 #define MyAppURL "https://github.com/mriazh/MRTG-TelkomCare-Report-Automation"
@@ -31,7 +31,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\MRTG-TelkomCare\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Icons]
