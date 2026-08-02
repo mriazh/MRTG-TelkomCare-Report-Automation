@@ -33,7 +33,7 @@ from mrtg_automation.gui.update_checker import UpdateManager
 from mrtg_automation.shared.browser_detection import (
     get_browser_display_name,
 )
-from mrtg_automation.shared.paths import REPORTS_DIR, ROOT_DIR
+from mrtg_automation.shared.paths import REPORTS_DIR, ROOT_DIR, ensure_directories
 from mrtg_automation.shared.resume_state import (
     clear_resume_state,
     format_resume_summary,
@@ -201,6 +201,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("MRTG TelkomCare Report Automation")
         self.resize(800, 600)
+
+        ensure_directories()
 
         self.worker_thread = None
         self.worker = None
@@ -426,7 +428,8 @@ class MainWindow(QMainWindow):
 
     def open_output_folder(self):
         try:
-            os.startfile(REPORTS_DIR)
+            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(REPORTS_DIR))
         except Exception as e:
             self.log_message(f"Could not open output folder: {e}")
 

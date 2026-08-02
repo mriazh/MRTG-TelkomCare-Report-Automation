@@ -1,196 +1,260 @@
 # MRTG-TelkomCare-Report-Automation
 
-Automated end-to-end pipeline to scrape MRTG traffic graphs from TelkomCare and compile them into formal Excel reports.
+Automated end-to-end pipeline that logs in to TelkomCare, captures MRTG traffic graphs, and compiles them into Excel reports. The application provides a Windows GUI and CLI, plus experimental source-only support for Debian/Linux.
 
-This application provides a seamless **GUI** and **CLI** experience for operators across both **Windows** and **Debian / Linux** platforms.
+## Platform Support
 
----
-
-## 💻 Platform Support
-
-| Platform | Support Level | Execution Method |
+| Platform | Support | Recommended use |
 |---|---|---|
-| **Windows** | Fully Supported | Pre-packaged Installer (`.exe`), Portable (`.zip`), or Python Source |
-| **Debian / Linux** | Experimental (Source-only) | Python 3.12 Virtual Environment (`.venv`) from Source |
+| Windows 10/11 | Supported | Installer EXE or portable ZIP |
+| Windows with Python 3.12 | Supported | Source development and diagnostics |
+| Debian/Linux | Experimental | Python source with a visible desktop session |
 
-> **Note on Scraping:** Because TelkomCare requires manual authentication (Captcha / MFA), running scraping operations requires a visible desktop session, VNC, or X forwarding. Pure headless mode without a display is not supported during the login phase.
+Scraping requires a visible browser session because TelkomCare authentication can involve CAPTCHA, MFA, and manual interaction. Do not use headless mode for the login phase unless your environment has been specifically validated.
 
----
+## Windows Distribution
 
-## 📥 Recommended Download (Windows Only)
+The release contains two Windows formats:
 
-For Windows operators, pre-packaged distribution formats are available on the releases page:
+- `MRTG-TelkomCare-Setup-v1.0.1.exe`: installer with Start Menu integration and optional desktop shortcut.
+- `MRTG-TelkomCare-v1.0.1-portable.zip`: extract-and-run package that does not install into system folders.
 
-- **Installer EXE (Recommended)**: `MRTG-TelkomCare-Setup-v1.0.1.exe` — installs the application, configures shortcuts, and sets up dependencies automatically.
-- **Portable ZIP**: `MRTG-TelkomCare-v1.0.1-portable.zip` — extract-and-run package for portable execution without modifying system folders.
+At least one supported browser must be installed: Chrome, Edge, Firefox, Chromium, or Brave. The GUI labels detected browsers as `Installed` or `Not Installed` and disables unavailable choices.
 
-> **Browser Requirement:** At least one supported web browser (**Google Chrome**, **Microsoft Edge**, **Mozilla Firefox**, **Brave**, or **Chromium**) must be installed on your system.
+## Installer Setup
 
----
+1. Run `MRTG-TelkomCare-Setup-v1.0.1.exe`.
+2. Choose the installation directory. The default is `%LOCALAPPDATA%\Programs\MRTG TelkomCare`.
+3. Launch the application from the Start Menu, desktop shortcut if selected, or `MRTG-TelkomCare.exe`.
+4. Open the installed `config` directory.
+5. Create the private environment file and target list from the sanitized examples.
 
-## 🚀 First-Run Setup & Configuration
+PowerShell example:
 
-> [!IMPORTANT]
-> For your security, releases **do not** include your environment-specific settings or network target lists. You must set these up locally before running the app.
-
-1. **Setup Runtime Settings**:
-   - Copy `config/.env.example` to `config/.env`.
-   - Open `.env` in a text editor to configure TelkomCare base URLs and timeout settings.
-   - *(Note: Passwords are not stored. You will log into TelkomCare manually in the browser when prompted).*
-2. **Prepare Network Targets**:
-   - Copy `config/list_mrtg_targets.example.csv` to `config/list_mrtg_targets.csv`
-   - Edit `config/list_mrtg_targets.csv` in Excel or text editor.
-   - Required columns: `type`, `target`, `ocr_enabled`, `image_enabled`.
-   ```csv
-   type,target,ocr_enabled,image_enabled
-   SID,EXAMPLE-SID,true,true
-   Graph-title,EXAMPLE-GRAPH-TITLE,true,true
-   ```
-
----
-
-## ⚙️ Operation Modes
-
-- **Scraping Modes**:
-  - **Scrape by SID**: Automatically fetch MRTG traffic graphs using exact system IDs.
-  - **Scrape by Graph Title**: Automatically fetch graphs matching assigned titles.
-- **Reporting Modes**:
-  - **Image Only**: Lightweight mode that generates an Excel report containing graph screenshots.
-  - **OCR + Image**: Advanced mode using AI (PaddleOCR) to read data values directly from screenshots, populating exact values and images into Excel cells.
-
----
-
-## 🌐 Browser Selection & Auto-Detection
-
-The application provides intelligent browser auto-detection and selection across Windows, Linux, and macOS:
-
-- **GUI Selection**: The GUI **Browser** dropdown scans your system upon launch and labels each supported browser with its installation status:
-  - `Chrome (Installed)`, `Edge (Installed)`, `Brave (Installed)`
-  - `Firefox (Not Installed)`, `Chromium (Not Installed)`
-  Uninstalled browsers are automatically disabled in the dropdown to prevent invalid selections. The application defaults to the first available installed browser.
-- **Headless Toggle**: Check **Run browser headless** to run scraping in the background (once login session is established).
-- **Environment Configuration**: Set `BROWSER_TYPE` in `config/.env` to `chrome`, `edge`, `firefox`, or `chromium`. Optionally specify `BROWSER_BINARY_LOCATION` to use a custom binary path.
-
----
-
-## 🖥️ GUI Usage & Launch Guide
-
-### 🪟 Windows Execution
-
-#### 1. Via Packaged Executable / Shortcut:
-- Double-click `MRTG-TelkomCare.exe` or launch via the Start Menu shortcut.
-
-#### 2. Via PowerShell (Source Code):
 ```powershell
-# Activate Virtual Environment
-.\.venv312\Scripts\Activate.ps1
+$installDir = Join-Path $env:LOCALAPPDATA 'Programs\MRTG TelkomCare'
 
-# Launch GUI Launcher
+Copy-Item (Join-Path $installDir 'config\.env.example') `
+          (Join-Path $installDir 'config\.env')
+Copy-Item (Join-Path $installDir 'config\list_mrtg_targets.example.csv') `
+          (Join-Path $installDir 'config\list_mrtg_targets.csv')
+
+notepad (Join-Path $installDir 'config\.env')
+notepad (Join-Path $installDir 'config\list_mrtg_targets.csv')
+```
+
+Do not create the files in the repository root or in the current PowerShell directory. They must be under the installed application's `config` directory. Quote paths containing spaces.
+
+## Portable Setup
+
+1. Extract `MRTG-TelkomCare-v1.0.1-portable.zip` into a dedicated writable directory.
+2. Open the extracted `MRTG-TelkomCare-Portable\config` directory.
+3. Copy `.env.example` to `.env` and `list_mrtg_targets.example.csv` to `list_mrtg_targets.csv`.
+4. Edit the two private files, then run `MRTG-TelkomCare.exe` from the extracted package directory.
+
+The portable package is intentionally free of private credentials, target data, screenshots, logs, reports, and resume state. Use a writable extraction directory so the application can create `data` and `output` beside the executable.
+
+## Configuration
+
+### `config/.env`
+
+Start from `config/.env.example`. The important settings are:
+
+| Variable | Purpose |
+|---|---|
+| `BASE_URL_SID` | TelkomCare URL or route used for SID targets |
+| `BASE_URL_GRAPH` | TelkomCare URL or route used for Graph-title targets |
+| `WAIT_TIMEOUT` | Normal browser wait timeout in seconds |
+| `LONG_TIMEOUT` | Longer page or processing timeout in seconds |
+| `LOGIN_WAIT` | Maximum login/MFA wait in seconds |
+| `MAX_RETRIES` | General retry count |
+| `MAX_GRAPH_RETRIES` | Graph capture retry count |
+| `BROWSER_TYPE` | `auto`, `chrome`, `chromium`, `firefox`, or `edge` |
+| `BROWSER_BINARY_LOCATION` | Optional absolute browser executable path |
+| `AUTO_LOGIN_ENABLED` | Optional automated-login switch; keep disabled unless configured |
+| `TELKOM_USER` / `TELKOM_PASSWORD` | Optional automated-login credentials; never share the file |
+| `TOTP_SECRET` | Optional automated MFA secret; treat as a credential |
+| `GEMINI_API_KEY` | Optional CAPTCHA/OCR fallback credential; never commit it |
+| `GEMINI_MODELS` | Comma-separated Gemini model fallback order |
+| `OCR_CONFIDENCE_THRESHOLD` | PaddleOCR confidence threshold |
+| `OCR_GEMINI_OBSERVE` | Enables optional OCR observation behavior |
+
+Passwords and API keys are not required for the normal manual-login flow. If automated login or Gemini fallback is enabled, protect the file and rotate credentials if it is ever exposed.
+
+### `config/list_mrtg_targets.csv`
+
+Start from `list_mrtg_targets.example.csv`. Required columns are:
+
+```csv
+type,target,ocr_enabled,image_enabled
+SID,4700001-EXAMPLE,true,true
+Graph-title,EXAMPLE-GRAPH-TITLE,true,true
+```
+
+Use `SID` for an exact system ID and `Graph-title` for a graph title. Boolean values should be `true` or `false`. The GUI and source CLI target filter uses these flags:
+
+- `image`: includes rows where `image_enabled=true`.
+- `ocr`: includes rows where `ocr_enabled=true`.
+- `all`: includes all recognized rows.
+
+Keep the private CSV local. It is deliberately excluded from release artifacts.
+
+### Position maps and Excel templates
+
+These files are release inputs and are already bundled by the installer and portable package:
+
+- `config/list_mrtg_data_position.txt`: OCR values and image ranges for the normal OCR report.
+- `config/list_mrtg_data_position_img_only.txt`: image ranges for the image-only report.
+- `templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx`: OCR report template.
+- `templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx`: image-only report template.
+
+Do not copy or edit these files during normal setup. Keep the position maps aligned with the corresponding workbook layout. If the workbook layout changes, update the matching map and validate a report before distributing a new release.
+
+## Operation Modes
+
+- **Scrape**: logs in and captures screenshots only.
+- **Report**: reads previously captured screenshots and creates an Excel report.
+- **Full Pipeline**: runs Scrape followed by Report in one operation.
+
+Target filters are `image`, `ocr`, and `all`. Report modes are `image` and `ocr`:
+
+- **Image-only report**: places screenshots into the image-only workbook.
+- **OCR report**: extracts values with PaddleOCR and can fall back to Gemini when PaddleOCR is incomplete or confidence is low, then writes values and images to the OCR workbook.
+
+## GUI Usage
+
+1. Launch the installed or portable `MRTG-TelkomCare.exe`.
+2. Select `Scrape`, `Report`, or `Full Pipeline`.
+3. Select a single date or date range.
+4. Select the target filter and report mode.
+5. Select an installed browser.
+6. Click Run.
+7. Complete TelkomCare login, CAPTCHA, terms, and MFA in the visible browser when prompted.
+8. Monitor the live log panel. A successful run ends with `exit_code=0` and a success summary.
+
+The GUI can pause and continue a run. If it detects an unfinished run on startup, choose `Resume`, `Start New`, or `Discard`. Use `Open Output Folder` from the menu to open `output/reports`; the folder is created automatically if it does not exist. Use `Open Log Folder` to open `output/logs`.
+
+## Source CLI Usage
+
+The source CLI is available through `python -m mrtg_automation`. The packaged EXE is built from the GUI launcher and should be treated primarily as a GUI application.
+
+### Windows source
+
+```powershell
+\.venv312\Scripts\Activate.ps1
+
+python -m mrtg_automation --help
+python -m mrtg_automation scrape --date 20260819 --targets all
+python -m mrtg_automation report --mode image --date 20260819
+python -m mrtg_automation report --mode ocr --date 20260819
+python -m mrtg_automation full --date 20260819 --targets ocr --report-mode ocr
+```
+
+Use `--start-date YYYYMMDD --end-date YYYYMMDD` for a date range. Use `--no-images` on report/full commands when values are needed without embedding screenshots. The source CLI reads configuration from the repository's `config` directory.
+
+### Debian/Linux source
+
+```bash
+source .venv/bin/activate
+python -m mrtg_automation --help
+python -m mrtg_automation full --date 20260819 --targets all --report-mode ocr
+```
+
+## GUI Source Launch
+
+```powershell
+\.venv312\Scripts\Activate.ps1
 python gui_launcher.py
-
-# Or launch GUI module directly
+# Or:
 python -m mrtg_automation gui
 ```
 
----
+On Debian/Linux, use `source .venv/bin/activate` and the same Python commands. A visible desktop session is required for the browser login flow.
 
-### 🐧 Debian / Linux Execution
+## Output and Logs
 
-#### Via Bash Terminal (Source Code):
-```bash
-# Activate Virtual Environment
-source .venv/bin/activate
+All runtime data is kept beside the executable in packaged mode, or at the repository root in source mode:
 
-# Launch GUI Launcher
-python gui_launcher.py
-
-# Or launch GUI module directly
-python -m mrtg_automation gui
+```text
+config/.env                         # private local settings, never share
+config/list_mrtg_targets.csv        # private local target list, never share
+data/MRTG-Data/YYYYMMDD/*.png       # captured screenshots
+output/reports/*.xlsx                # generated Excel reports
+output/logs/app.log                  # application log
+output/logs/ocr_report.log           # OCR-specific log when OCR is used
+output/state/                        # resume state for interrupted runs
+output/screenshots/                  # debug screenshots if enabled
 ```
 
----
+The report command prints the exact template, mapping, target list, data directory, and output path it uses. A successful full run reports the target summary, OCR engine summary, generated workbook, and `exit_code=0`.
 
-### Key GUI Interface Features:
-- **Operation Mode**: Select **Scrape**, **Report**, or **Full Pipeline** (Scrape $\rightarrow$ Report).
-- **Date Mode**: Choose **Single Date** or **Date Range** (Start Date to End Date).
-- **Target Filtering & Report Mode**: Filter targets by `image`, `ocr`, or `all`, and choose report format (`image` or `ocr`).
-- **Browser Selector**: Pick any detected installed browser (`Chrome (Installed)`, `Edge (Installed)`, etc.). Uninstalled options are automatically disabled.
-- **Pause / Continue Controls**: Pause active scraping or OCR processing tasks at any point and resume seamlessly without losing progress.
-- **Unfinished Run Recovery**: If an execution is interrupted, the GUI detects unfinished states on launch and prompts to **Resume**, **Start New**, or **Discard**.
-- **Real-Time Streaming Log Panel**: Track progress live with formatted logging, status updates, and network error alerts.
+## Troubleshooting
 
----
+### `pytest` is not installed
 
-## 💻 CLI Usage & Commands Guide
+Use the same Python interpreter as the source environment:
 
-### 🪟 Windows Execution
-
-#### 1. Via PowerShell (Source Code):
 ```powershell
-# Activate Virtual Environment
-.\.venv312\Scripts\Activate.ps1
-
-# Scrape all targets for a specific date
-python -m mrtg_automation scrape --date YYYYMMDD --targets all --browser chrome
-
-# Generate an OCR report for previously scraped data
-python -m mrtg_automation report --mode ocr --date YYYYMMDD
-
-# Run the full pipeline (scrape -> report) sequentially
-python -m mrtg_automation full --date YYYYMMDD --targets all --report-mode ocr --browser edge
+\.venv312\Scripts\python.exe -m pip install pytest
+\.venv312\Scripts\python.exe -m pytest -q
 ```
 
-#### 2. Via Packaged Executable CLI:
-After extracting `MRTG-TelkomCare-v1.0.1-portable.zip` or installing `MRTG-TelkomCare-Setup-v1.0.1.exe`, run:
-```cmd
-MRTG-TelkomCare.exe scrape --date YYYYMMDD --targets all --browser chrome
-MRTG-TelkomCare.exe report --mode ocr --date YYYYMMDD
-MRTG-TelkomCare.exe full --date YYYYMMDD --targets all --report-mode ocr --browser edge
+### PowerShell cannot find a path with spaces
+
+Quote the path or use `Join-Path`:
+
+```powershell
+Set-Location "C:\Users\<user>\AppData\Local\Programs\MRTG TelkomCare"
+$installDir = Join-Path $env:LOCALAPPDATA 'Programs\MRTG TelkomCare'
 ```
 
----
+### `Could not open output folder` / `[WinError 2]`
 
-### 🐧 Debian / Linux Execution
+Use the rebuilt release. The GUI creates runtime directories at startup and creates `output/reports` before opening it. If testing an older installation, reinstall the current installer or manually run:
 
-#### Via Bash Terminal (Source Code):
-```bash
-# Activate Virtual Environment
-source .venv/bin/activate
-
-# Scrape all targets for a specific date
-python -m mrtg_automation scrape --date YYYYMMDD --targets all --browser chrome
-
-# Generate an OCR report for previously scraped data
-python -m mrtg_automation report --mode ocr --date YYYYMMDD
-
-# Run the full pipeline (scrape -> report) sequentially
-python -m mrtg_automation full --date YYYYMMDD --targets all --report-mode ocr --browser firefox
+```powershell
+$installDir = Join-Path $env:LOCALAPPDATA 'Programs\MRTG TelkomCare'
+New-Item -ItemType Directory -Force (Join-Path $installDir 'output\reports')
 ```
 
----
+### No targets are found
 
-## 📂 File Directory Layout
+Verify that `config/list_mrtg_targets.csv` exists beside the executable, has the four required headers, uses recognized `type` values (`SID` or `Graph-title`), and enables the selected filter with `true` values.
 
-When you run the automation, local files are organized into standard directories:
+### No report is generated
 
-- **Screenshots**: `data/MRTG-Data/YYYYMMDD`
-- **Excel Reports**: `output/reports`
-- **Application Logs**: `output/logs`
-- **Resume/State Files**: `output/state` (Used to resume scraping if a session is interrupted)
+Run Scrape first and verify that `data/MRTG-Data/YYYYMMDD` contains valid PNG files. Then run Report for the same date. Check `output/logs/app.log` and `output/logs/ocr_report.log` for details.
 
----
+### Browser or login fails
 
-## 🔒 Security & Privacy Note
+Install a supported browser, select it explicitly in the GUI, verify the configured base URL, and keep the browser visible during login. CAPTCHA, MFA, terms acceptance, and network access must be completed successfully.
 
-**Never commit or share your `config/.env` or private target list (`config/list_mrtg_targets.csv`)!**
+### OCR uses Gemini or reports partial values
 
-Automated build scripts validate release packages before distribution to ensure no local configuration files, scraped data, logs, reports, or state files are bundled into public releases.
+This is expected when PaddleOCR is incomplete or below the configured confidence threshold. Check the OCR summary and logs. Ensure `GEMINI_API_KEY` is configured only when Gemini fallback is permitted and available.
 
----
+## Packaging and Release Validation
 
-## 🏗️ Project Merger (Legacy Notice)
+Build from a clean Windows Python 3.12 environment:
 
-This repository is the unified successor of two legacy projects:
+```powershell
+\.venv312\Scripts\Activate.ps1
+\.venv312\Scripts\python.exe -m pytest tests/test_browser_detection.py tests/test_build_packaging_contract.py tests/test_gui_startup_contract.py tests/test_release_metadata.py tests/test_release_packaging_contract.py -q
+\.venv312\Scripts\python.exe -m compileall -q src tests
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_exe.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\package_portable.ps1 -Force
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -Force
+```
 
-- [Automated-Daily-MRTG-Telkom-in-GMF](https://github.com/mriazh/Automated-Daily-MRTG-Telkom-in-GMF): Provided the original TelkomCare web scraping capabilities.
-- [Automated-MRTG-to-Excel-Report](https://github.com/mriazh/Automated-MRTG-to-Excel-Report): Provided the Excel reporting and OCR capabilities.
+The build creates the EXE under `dist/MRTG-TelkomCare`, the portable archive under `release`, and the installer under `release`. Release scripts reject private configuration, runtime data, logs, reports, screenshots, state, and unapproved files.
+
+## Security and Privacy
+
+Never commit, upload, or share `config/.env` or `config/list_mrtg_targets.csv`. These files may contain URLs, credentials, API keys, private target identifiers, or operational data. Rotate credentials if they are exposed. Release artifacts intentionally include only sanitized examples and approved templates/maps.
+
+## Project Merger
+
+This repository is the unified successor of:
+
+- [Automated-Daily-MRTG-Telkom-in-GMF](https://github.com/mriazh/Automated-Daily-MRTG-Telkom-in-GMF), which provided TelkomCare scraping.
+- [Automated-MRTG-to-Excel-Report](https://github.com/mriazh/Automated-MRTG-to-Excel-Report), which provided Excel reporting and OCR.
