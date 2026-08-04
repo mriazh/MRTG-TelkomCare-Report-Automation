@@ -6,7 +6,7 @@ Automated end-to-end pipeline that logs in to TelkomCare, captures MRTG traffic 
 
 | Platform | Support | Recommended use |
 |---|---|---|
-| Windows 10/11 | Supported | Installer EXE or portable ZIP |
+| Windows 10/11 | Supported | Portable ZIP (Installer EXE conditional / optional) |
 | Windows with Python 3.12 | Supported | Source development and diagnostics |
 | Debian/Linux | Experimental | Python source with a visible desktop session |
 
@@ -14,16 +14,16 @@ Scraping requires a visible browser session because TelkomCare authentication ca
 
 ## Windows Distribution
 
-The release contains two Windows formats:
+The Windows release is provided as a portable distribution:
 
-- `MRTG-TelkomCare-Setup-v1.0.1.exe`: installer with Start Menu integration and optional desktop shortcut.
-- `MRTG-TelkomCare-v1.0.1-portable.zip`: extract-and-run package that does not install into system folders.
+- `MRTG-TelkomCare-v1.0.2-portable.zip`: extract-and-run package that does not install into system folders.
+- `MRTG-TelkomCare-Setup-v1.0.2.exe`: optional installer format (conditional / built from source with Inno Setup; not included in standard release package).
 
 At least one supported browser must be installed: Chrome, Edge, Firefox, Chromium, or Brave. The GUI labels detected browsers as `Installed` or `Not Installed` and disables unavailable choices.
 
-## Installer Setup
+## Installer Setup (If Built)
 
-1. Run `MRTG-TelkomCare-Setup-v1.0.1.exe`.
+1. Run `MRTG-TelkomCare-Setup-v1.0.2.exe`.
 2. Choose the installation directory. The default is `%LOCALAPPDATA%\Programs\MRTG TelkomCare`.
 3. Launch the application from the Start Menu, desktop shortcut if selected, or `MRTG-TelkomCare.exe`.
 4. Open the installed `config` directory.
@@ -47,7 +47,7 @@ Do not create the files in the repository root or in the current PowerShell dire
 
 ## Portable Setup
 
-1. Extract `MRTG-TelkomCare-v1.0.1-portable.zip` into a dedicated writable directory.
+1. Extract `MRTG-TelkomCare-v1.0.2-portable.zip` into a dedicated writable directory.
 2. Open the extracted `MRTG-TelkomCare-Portable\config` directory.
 3. Copy `.env.example` to `.env` and `list_mrtg_targets.example.csv` to `list_mrtg_targets.csv`.
 4. Edit the two private files, then run `MRTG-TelkomCare.exe` from the extracted package directory.
@@ -101,12 +101,12 @@ Keep the private CSV local. It is deliberately excluded from release artifacts.
 
 ### Position maps and Excel templates
 
-These files are release inputs and are already bundled by the installer and portable package:
+All report inputs live in `config/`. These files are release inputs and are already bundled by the installer and portable package:
 
 - `config/list_mrtg_data_position.txt`: OCR values and image ranges for the normal OCR report.
 - `config/list_mrtg_data_position_img_only.txt`: image ranges for the image-only report.
-- `templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx`: OCR report template.
-- `templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx`: image-only report template.
+- `config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx`: OCR report template.
+- `config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx`: image-only report template.
 
 Do not copy or edit these files during normal setup. Keep the position maps aligned with the corresponding workbook layout. If the workbook layout changes, update the matching map and validate a report before distributing a new release.
 

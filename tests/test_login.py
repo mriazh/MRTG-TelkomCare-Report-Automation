@@ -19,9 +19,9 @@ After successful test:
 """
 import sys
 import time
+
 from mrtg_automation.scraper.telkomcare import TelkomCareScraper
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+
 
 def main():
     print("=" * 70)
@@ -63,20 +63,11 @@ def main():
             # Re-open and check if logged in automatically
             scraper2 = TelkomCareScraper(headless=True)
             scraper2.session.start()
-            scraper2.session.driver.get(scraper2.base_url)
-            # Wait for page to fully load before checking login status
-            try:
-                WebDriverWait(scraper2.session.driver, 10).until(
-                    lambda d: d.execute_script("return document.readyState") == 'complete'
-                )
-                time.sleep(1)
-            except Exception:
-                pass
-            
-            if scraper2.session.is_logged_in():
+            if scraper2.session.restore_persisted_session():
                 print("[OK] Session persisted! Cookies work for next run.")
             else:
                 print("[WARN] Session did NOT persist. May need to keep browser open during scraper run, or check profile.")
+
             
             scraper2.close()
         else:

@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -9,9 +10,10 @@ from .shared.paths import CONFIG_DIR
 logger = logging.getLogger('mrtg_automation.config')
 
 class Config:
-    def __init__(self):
+    def __init__(self, config_dir=None):
+        config_root = Path(config_dir).expanduser().resolve() if config_dir is not None else CONFIG_DIR
         # Load environment variables from config/.env
-        env_path = CONFIG_DIR / ".env"
+        env_path = config_root / ".env"
         load_dotenv(dotenv_path=env_path)
 
         # Base URLs for each mode

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from .shared.logging import setup_logging
 from .shared.paths import ensure_directories
@@ -19,7 +20,7 @@ def print_menu():
     print("1. Scrape MRTG screenshots")
     print("2. Generate Excel report")
     print("3. Scrape + Generate Excel")
-    print("4. Validate config/templates/data")
+    print("4. Validate config/data")
     print("5. Migrate Legacy Data (Opsional)")
     print("6. Exit")
     print("=" * 50)
@@ -37,7 +38,6 @@ def run_cli():
         if choice == '1':
             print("=> Menjalankan mode Scraper...")
             # Note: CLI parses date here, scraper will receive datetime objects
-            pass
         elif choice == '2':
             print("=> Menjalankan mode Report Generator...")
 
@@ -50,12 +50,7 @@ def run_cli():
                 from .config import Config
                 from .report.excel import ExcelReportGenerator
                 from .shared.logging import setup_ocr_logger
-                from .shared.paths import (
-                    CONFIG_DIR,
-                    DATA_DIR,
-                    REPORTS_DIR,
-                    TEMPLATES_DIR,
-                )
+                from .shared.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR
 
                 # Setup OCR logger dynamically
                 setup_ocr_logger()
@@ -70,8 +65,8 @@ def run_cli():
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position.txt"
                 list_file = CONFIG_DIR / "list_mrtg_targets.csv"
 
-                template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
-                legacy_template = TEMPLATES_DIR / "MRTG-Monthly-Report.xlsx"
+                template_file = CONFIG_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+                legacy_template = CONFIG_DIR / "MRTG-Monthly-Report.xlsx"
                 if not template_file.exists() and legacy_template.exists():
                     template_file = legacy_template
 
@@ -121,19 +116,15 @@ def run_cli():
             elif report_choice == '1':
                 from .config import Config
                 from .report.excel import ExcelReportGenerator
-                from .shared.paths import (
-                    CONFIG_DIR,
-                    DATA_DIR,
-                    REPORTS_DIR,
-                    TEMPLATES_DIR,
-                )
+                from .shared.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR
+
 
                 # Hardcoded defaults for Milestone 2 testing
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
                 list_file = CONFIG_DIR / "list_mrtg_targets.csv"
 
-                template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-image-only.xlsx"
-                legacy_template = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+                template_file = CONFIG_DIR / "MRTG-Monthly-Report-image-only.xlsx"
+                legacy_template = CONFIG_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
 
                 if not template_file.exists() and legacy_template.exists():
                     template_file = legacy_template
@@ -172,7 +163,6 @@ def run_cli():
 
         elif choice == '3':
             print("=> Menjalankan Full Pipeline...")
-            pass
         elif choice == '4':
             Validator.run_all_checks()
         elif choice == '5':
@@ -201,7 +191,6 @@ def run_cli():
             print("[!] Pilihan tidak valid.")
 
 import datetime
-from pathlib import Path
 
 
 def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> list:
@@ -210,7 +199,8 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
             print(f"[FAIL] Invalid date format. Must be YYYYMMDD, got {date_str}")
             return []
         try:
-            return [datetime.datetime.strptime(date_str, "%Y%m%d").date()]
+            iso_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+            return [datetime.date.fromisoformat(iso_str)]
         except ValueError:
             print(f"[FAIL] Invalid date {date_str}")
             return []
@@ -221,8 +211,10 @@ def parse_cli_dates(date_str=None, start_date_str=None, end_date_str=None) -> li
             return []
         try:
             from .shared.dates import generate_date_range
-            start_date = datetime.datetime.strptime(start_date_str, "%Y%m%d").date()
-            end_date = datetime.datetime.strptime(end_date_str, "%Y%m%d").date()
+            start_iso = f"{start_date_str[:4]}-{start_date_str[4:6]}-{start_date_str[6:]}"
+            end_iso = f"{end_date_str[:4]}-{end_date_str[4:6]}-{end_date_str[6:]}"
+            start_date = datetime.date.fromisoformat(start_iso)
+            end_date = datetime.date.fromisoformat(end_iso)
             return generate_date_range(start_date, end_date)
         except ValueError as e:
             print(f"[FAIL] Invalid date range: {e}")
@@ -241,7 +233,9 @@ def _discover_data_dates(data_dir: Path) -> list:
         if not entry.is_dir():
             continue
         try:
-            dates.append(datetime.datetime.strptime(entry.name, "%Y%m%d").date())
+            if len(entry.name) == 8 and entry.name.isdigit():
+                iso_str = f"{entry.name[:4]}-{entry.name[4:6]}-{entry.name[6:]}"
+                dates.append(datetime.date.fromisoformat(iso_str))
         except ValueError:
             continue
 
@@ -260,7 +254,7 @@ def _monthly_output_path(output_path: Path, month_key: str) -> Path:
     return output_path.parent / f"{output_path.stem}-{month_key}{output_path.suffix}"
 
 
-def run_scrape_command(date_str: str = None, targets_filter: str = "image", headless: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False) -> int:
+def run_scrape_command(date_str: str | None = None, targets_filter: str = "image", headless: bool = False, start_date_str: str | None = None, end_date_str: str | None = None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False, data_dir=None, config_dir=None, output_dir=None) -> int:
     """
     Run scrape-only command for one or more dates.
     """
@@ -268,15 +262,24 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
     if not dates:
         return 1
 
-    ensure_directories()
-    setup_logging()
+    from .config import Config
+    from .report.mapping import parse_target_list
+    from .shared.paths import CONFIG_DIR, DATA_DIR, OUTPUT_DIR, get_output_paths
+
+    config_root = Path(config_dir).expanduser().resolve() if config_dir is not None else CONFIG_DIR
+    output_root = Path(output_dir).expanduser().resolve() if output_dir is not None else OUTPUT_DIR
+    if data_dir is not None:
+        data_root = Path(data_dir).expanduser().resolve()
+    elif output_dir is not None:
+        data_root = get_output_paths(output_root)["data"]
+    else:
+        data_root = DATA_DIR
+
+    ensure_directories(output_dir=output_root, config_dir=config_root)
+    setup_logging(output_dir=output_root)
 
     log_run_boundary("RUN START", f"scrape dates={len(dates)} targets={targets_filter}")
-
-    from .report.mapping import parse_target_list
-    from .shared.paths import CONFIG_DIR
-
-    target_file = CONFIG_DIR / "list_mrtg_targets.csv"
+    target_file = config_root / "list_mrtg_targets.csv"
 
     if targets_filter == "image":
         items = parse_target_list(target_file, enabled_for="image")
@@ -325,7 +328,7 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
         save_resume_state(resume_state)
 
     from .scraper.telkomcare import TelkomCareScraper
-    scraper = TelkomCareScraper(headless=headless, cancel_event=cancel_event)
+    scraper = TelkomCareScraper(config=Config(config_dir=config_root), headless=headless, cancel_event=cancel_event, data_dir=data_root)
 
     cancelled = False
     try:
@@ -415,13 +418,35 @@ def run_scrape_command(date_str: str = None, targets_filter: str = "image", head
 import os
 
 
-def run_report_command(mode: str, date_str: str = None, no_images: bool = False, start_date_str: str = None, end_date_str: str = None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False) -> int:
-    ensure_directories()
-    setup_logging()
-
+def run_report_command(mode: str, date_str: str | None = None, no_images: bool = False, start_date_str: str | None = None, end_date_str: str | None = None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False, data_dir=None, config_dir=None, reports_dir=None, output_dir=None) -> int:
     from .config import Config
     from .report.excel import ExcelReportGenerator
-    from .shared.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR, TEMPLATES_DIR
+    from .shared.paths import (
+        CONFIG_DIR,
+        DATA_DIR,
+        OUTPUT_DIR,
+        REPORTS_DIR,
+        get_output_paths,
+    )
+
+    config_root = Path(config_dir).expanduser().resolve() if config_dir is not None else CONFIG_DIR
+    output_root = Path(output_dir).expanduser().resolve() if output_dir is not None else OUTPUT_DIR
+    if data_dir is not None:
+        data_root = Path(data_dir).expanduser().resolve()
+    elif output_dir is not None:
+        data_root = get_output_paths(output_root)["data"]
+    else:
+        data_root = DATA_DIR
+
+    if reports_dir is not None:
+        reports_root = Path(reports_dir).expanduser().resolve()
+    elif output_dir is not None:
+        reports_root = get_output_paths(output_root)["reports"]
+    else:
+        reports_root = REPORTS_DIR
+
+    ensure_directories(output_dir=output_root, config_dir=config_root)
+    setup_logging(output_dir=output_root)
 
     if date_str or (start_date_str and end_date_str):
         dates = parse_cli_dates(date_str, start_date_str, end_date_str)
@@ -429,7 +454,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
             return 1
         date_filter = [d.strftime("%Y%m%d") for d in dates]
     else:
-        dates = _discover_data_dates(DATA_DIR)
+        dates = _discover_data_dates(data_root)
         if not dates:
             print("[FAIL] No valid YYYYMMDD data folders found.")
             return 1
@@ -440,18 +465,18 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
 
     if mode == "image":
         report_mode = "IMAGE_ONLY"
-        mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
-        list_file = CONFIG_DIR / "list_mrtg_targets.csv"
-        template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-image-only.xlsx"
-        fallback_template = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
-        output_file = REPORTS_DIR / "MRTG-Monthly-Report-image-only.xlsx"
+        mapping_file = config_root / "list_mrtg_data_position_img_only.txt"
+        list_file = config_root / "list_mrtg_targets.csv"
+        template_file = config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+        fallback_template = config_root / "MRTG-Monthly-Report-image-only.xlsx"
+        output_file = reports_root / "MRTG-Monthly-Report-image-only.xlsx"
     elif mode == "ocr":
         report_mode = "OCR_IMAGE"
-        mapping_file = CONFIG_DIR / "list_mrtg_data_position.txt"
-        list_file = CONFIG_DIR / "list_mrtg_targets.csv"
-        template_file = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
-        fallback_template = TEMPLATES_DIR / "MRTG-Monthly-Report.xlsx"
-        output_file = REPORTS_DIR / "MRTG-Monthly-Report-ocr.xlsx"
+        mapping_file = config_root / "list_mrtg_data_position.txt"
+        list_file = config_root / "list_mrtg_targets.csv"
+        template_file = config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+        fallback_template = config_root / "MRTG-Monthly-Report.xlsx"
+        output_file = reports_root / "MRTG-Monthly-Report-ocr.xlsx"
         from .shared.logging import setup_ocr_logger
         setup_ocr_logger()
     else:
@@ -469,7 +494,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
     print(f"Template: {template_file}")
     print(f"Mapping: {mapping_file}")
     print(f"Target List: {list_file}")
-    print(f"Data Dir: {DATA_DIR}")
+    print(f"Data Dir: {data_root}")
     print(f"Output: {output_file}")
     if dates:
         print(f"Date count: {len(dates)}")
@@ -487,7 +512,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
         resume_state["current_phase"] = phase
         save_resume_state(resume_state)
 
-    cfg = Config()
+    cfg = Config(config_dir=config_root)
     generator = ExcelReportGenerator(cfg)
     date_groups = _group_dates_by_month(dates)
 
@@ -514,7 +539,7 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
         print(f"\n[PHASE] Generating report for {month_key} ({len(month_dates)} days)")
 
         month_summary = generator.generate(
-            report_mode=report_mode, data_dir=DATA_DIR, template_path=template_file,
+            report_mode=report_mode, data_dir=data_root, template_path=template_file,
             output_path=month_output_file, mapping_file=mapping_file, list_file=list_file,
             date_filter=date_filter, cancel_event=cancel_event, pause_event=pause_event, resume_state=resume_state,
             resume_mode=resume_mode, phase=phase
@@ -539,20 +564,48 @@ def run_report_command(mode: str, date_str: str = None, no_images: bool = False,
     return 0 if overall_success else 1
 
 def run_full_command(
-    date_str: str = None,
+    date_str: str | None = None,
     targets_filter: str = "image",
     report_mode: str = "image",
     headless: bool = False,
     no_images: bool = False,
-    start_date_str: str = None,
-    end_date_str: str = None,
+    start_date_str: str | None = None,
+    end_date_str: str | None = None,
     cancel_event=None,
     pause_event=None,
     resume_state=None,
-    resume_mode: bool = False
+    resume_mode: bool = False,
+    data_dir=None,
+    config_dir=None,
+    reports_dir=None,
+    output_dir=None
 ) -> int:
-    ensure_directories()
-    setup_logging()
+    from .shared.paths import (
+        CONFIG_DIR,
+        DATA_DIR,
+        OUTPUT_DIR,
+        REPORTS_DIR,
+        get_output_paths,
+    )
+
+    config_root = Path(config_dir).expanduser().resolve() if config_dir is not None else CONFIG_DIR
+    output_root = Path(output_dir).expanduser().resolve() if output_dir is not None else OUTPUT_DIR
+    if data_dir is not None:
+        data_root = Path(data_dir).expanduser().resolve()
+    elif output_dir is not None:
+        data_root = get_output_paths(output_root)["data"]
+    else:
+        data_root = DATA_DIR
+
+    if reports_dir is not None:
+        reports_root = Path(reports_dir).expanduser().resolve()
+    elif output_dir is not None:
+        reports_root = get_output_paths(output_root)["reports"]
+    else:
+        reports_root = REPORTS_DIR
+
+    ensure_directories(output_dir=output_root, config_dir=config_root)
+    setup_logging(output_dir=output_root)
 
     dates = parse_cli_dates(date_str, start_date_str, end_date_str)
     if not dates:
@@ -579,7 +632,7 @@ def run_full_command(
 
     log_run_boundary("RUN START", f"full targets={targets_filter} report_mode={report_mode}")
 
-    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, cancel_event, pause_event, resume_state, resume_mode)
+    scrape_exit_code = run_scrape_command(date_str, targets_filter, headless, start_date_str, end_date_str, cancel_event, pause_event, resume_state, resume_mode, data_root, config_root, output_dir=output_root)
     if scrape_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during scrape.")
         log_run_boundary("RUN END", "full exit_code=130 stopped_during_scrape")
@@ -592,9 +645,9 @@ def run_full_command(
     if resume_state is not None:
         from .shared.resume_state import save_resume_state
         resume_state["current_phase"] = "report_image" if report_mode == "image" else "report_ocr"
-        save_resume_state(resume_state)
+        save_resume_state(resume_state, output_dir=output_root)
 
-    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event, pause_event, resume_state, resume_mode)
+    report_exit_code = run_report_command(report_mode, date_str, no_images, start_date_str, end_date_str, cancel_event, pause_event, resume_state, resume_mode, data_root, config_root, reports_root, output_dir=output_root)
     if report_exit_code == 130:
         print("\n[STOP] Full pipeline stopped during report.")
         log_run_boundary("RUN END", "full exit_code=130 stopped_during_report")

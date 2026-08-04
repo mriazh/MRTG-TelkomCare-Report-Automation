@@ -1,6 +1,6 @@
 #define MyAppName "MRTG TelkomCare Report Automation"
 #ifndef MyAppVersion
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #endif
 #define MyAppPublisher "mriazh"
 #define MyAppURL "https://github.com/mriazh/MRTG-TelkomCare-Report-Automation"

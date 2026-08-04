@@ -9,6 +9,7 @@ Tests assert required contract patterns by inspecting script content without
 executing PowerShell, tar, PyInstaller, or ISCC.
 """
 
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -18,17 +19,17 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-# --- Expected values (release 1.0.1) --------------------------------------
-EXPECTED_VERSION = "1.0.1"
+# --- Expected values (release 1.0.2) --------------------------------------
+EXPECTED_VERSION = "1.0.2"
 EXPECTED_EXE_NAME = "MRTG-TelkomCare.exe"
 EXPECTED_EXE_STEM = "MRTG-TelkomCare"
 EXPECTED_SETUP_ASSET_PREFIX = "MRTG-TelkomCare-Setup"
 EXPECTED_SETUP_ASSET_SUFFIX = ".exe"
-EXPECTED_SETUP_INSTALLER_NAME = "MRTG-TelkomCare-Setup-v1.0.1.exe"
-EXPECTED_PORTABLE_ARCHIVE_NAME = "MRTG-TelkomCare-v1.0.1-portable.zip"
+EXPECTED_SETUP_INSTALLER_NAME = "MRTG-TelkomCare-Setup-v1.0.2.exe"
+EXPECTED_PORTABLE_ARCHIVE_NAME = "MRTG-TelkomCare-v1.0.2-portable.zip"
 STALE_EXE_NAME = "MRTG-TelkomCare-Automation.exe"
 
-# --- Frozen packaging-text snippets (verified at release 1.0.1) -----------
+# --- Frozen packaging-text snippets (verified at release 1.0.2) -----------
 # These are the exact strings the packaging files must contain; the tests
 # below re-read the real files and assert the snippets are present.
 PACKAGE_PORTABLE_SCRIPT = REPO_ROOT / "scripts" / "package_portable.ps1"
@@ -50,22 +51,21 @@ class TestReleasePackagingContract(unittest.TestCase):
         cls.build_exe_content = BUILD_EXE_SCRIPT.read_text(encoding="utf-8")
 
     def test_no_fallback_versions(self):
-        """Ensure conflicting APP_VERSION fallbacks (0.0.0 and 1.0.1) are removed."""
-        self.assertNotIn(
-            '$AppVersion = "0.0.0"',
-            self.portable_content,
-            "package_portable.ps1 still contains '0.0.0' fallback version",
+        """Ensure any quoted $AppVersion assignment in packaging scripts equals EXPECTED_VERSION."""
+        pattern = re.compile(r'^\s*\$AppVersion\s*=\s*"([^"]+)"', re.MULTILINE)
+        scripts = (
+            (self.portable_content, "package_portable.ps1"),
+            (self.installer_content, "build_installer.ps1"),
+            (self.build_exe_content, "build_exe.ps1"),
         )
-        self.assertNotIn(
-            '$AppVersion = "1.0.1"',
-            self.installer_content,
-            "build_installer.ps1 still contains '1.0.1' fallback version",
-        )
-        self.assertNotIn(
-            '$AppVersion = "1.0.1"',
-            self.build_exe_content,
-            "build_exe.ps1 still contains '1.0.1' fallback version",
-        )
+        for content, script_name in scripts:
+            for match in pattern.finditer(content):
+                assigned_version = match.group(1)
+                self.assertEqual(
+                    assigned_version,
+                    EXPECTED_VERSION,
+                    f"{script_name} contains obsolete fallback version assignment '{assigned_version}'",
+                )
 
     def test_fail_fast_on_missing_app_info_or_unparsed_version(self):
         """Both packaging scripts must exit if app_info.py is missing or APP_VERSION unparsable."""
@@ -116,7 +116,7 @@ class TestReleasePackagingContract(unittest.TestCase):
         self.assertIn("foreach ($relPath in $ManifestEntries)", self.portable_content)
         self.assertIn("Copy-Item", self.portable_content)
         # Must not use whole-directory patterns like "Src = \"_internal\""
-        for directory in ("_internal", "templates", "assets"):
+        for directory in ("_internal", "config", "assets"):
             self.assertNotIn(
                 f'Src = "{directory}"',
                 self.portable_content,
@@ -130,7 +130,7 @@ class TestReleasePackagingContract(unittest.TestCase):
         self.assertIn("Get-Content $ManifestPath", self.installer_content)
         self.assertIn("foreach ($relPath in $ManifestEntries)", self.installer_content)
         self.assertIn("Copy-Item", self.installer_content)
-        for directory in ("_internal", "templates", "assets"):
+        for directory in ("_internal", "config", "assets"):
             self.assertNotIn(
                 f'Src = "{directory}"',
                 self.installer_content,
@@ -270,8 +270,8 @@ class TestReleasePackagingContract(unittest.TestCase):
             "config/list_mrtg_targets.example.csv",
             "config/list_mrtg_data_position.txt",
             "config/list_mrtg_data_position_img_only.txt",
-            "templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-            "templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+            "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+            "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
             "assets/app_icon.ico",
             "_internal/base_library.zip",
             "_internal/python312.dll",
@@ -312,7 +312,7 @@ class TestReleasePackagingContract(unittest.TestCase):
             "_internal/paddlex/stale.txt",
             "_internal/stale.dll",
             "_internal/stale.pyd",
-            "templates/stale.txt",
+            "config/stale.txt",
             "assets/unexpected.png",
             "stale.txt",
         ):
@@ -345,8 +345,8 @@ def validate_release_manifest(entries, allowed_files=(
     "config/list_mrtg_targets.example.csv",
     "config/list_mrtg_data_position.txt",
     "config/list_mrtg_data_position_img_only.txt",
-    "templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-    "templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+    "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+    "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "assets/app_icon.ico",
     "_internal/base_library.zip",
     "_internal/python312.dll",

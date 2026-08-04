@@ -57,9 +57,10 @@ def retry_on_stale(max_retries=3, base_delay=0.5):
 
 
 class GraphExtractor:
-    def __init__(self, driver, mode='sid'):
+    def __init__(self, driver, mode='sid', data_dir=None):
         self.driver = driver
         self.mode = mode.lower()
+        self.data_dir = Path(data_dir) if data_dir is not None else None
         self.last_status = None
         self.last_error = None
         self.last_validation_error = None
@@ -565,7 +566,7 @@ class GraphExtractor:
                 time.sleep(3)
 
                 from mrtg_automation.shared.filenames import get_screenshot_path
-                final_file = get_screenshot_path(target_id, date_obj)
+                final_file = get_screenshot_path(target_id, date_obj, self.data_dir)
                 output_dir = final_file.parent
                 output_dir.mkdir(parents=True, exist_ok=True)
 

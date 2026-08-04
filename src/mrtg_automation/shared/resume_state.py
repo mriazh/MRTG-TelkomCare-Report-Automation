@@ -7,11 +7,15 @@ from .paths import STATE_DIR
 
 logger = logging.getLogger("mrtg_automation.shared.resume_state")
 
-def get_resume_state_path() -> Path:
+def get_resume_state_path(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> Path:
+    if state_dir is not None:
+        return Path(state_dir).expanduser().resolve() / "resume_state.json"
+    elif output_dir is not None:
+        return Path(output_dir).expanduser().resolve() / "state" / "resume_state.json"
     return STATE_DIR / "resume_state.json"
 
-def load_resume_state() -> dict | None:
-    path = get_resume_state_path()
+def load_resume_state(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> dict | None:
+    path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     if not path.exists():
         return None
     try:
@@ -21,9 +25,10 @@ def load_resume_state() -> dict | None:
         logger.error(f"Failed to load resume state: {e}")
         return None
 
-def save_resume_state(state: dict) -> None:
-    path = get_resume_state_path()
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+def save_resume_state(state: dict, state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> None:
+    path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
+    target_dir = path.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
     try:
         state["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(path, "w", encoding="utf-8") as f:
@@ -31,19 +36,20 @@ def save_resume_state(state: dict) -> None:
     except Exception as e:
         logger.error(f"Failed to save resume state: {e}")
 
-def clear_resume_state() -> None:
-    path = get_resume_state_path()
+def clear_resume_state(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> None:
+    path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     try:
         if path.exists():
             path.unlink()
     except Exception as e:
         logger.error(f"Failed to clear resume state: {e}")
 
-def has_unfinished_resume_state() -> bool:
-    state = load_resume_state()
+def has_unfinished_resume_state(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> bool:
+    state = load_resume_state(state_dir=state_dir, output_dir=output_dir)
     if not state:
         return False
     return state.get("status") in ("running", "paused", "stopped")
+
 
 def format_resume_summary(state: dict) -> str:
     lines = []

@@ -38,11 +38,13 @@ class TelkomCareScraper:
     """
 
     def __init__(self, config=None, profile_dir: str = None, headless: bool = True,
-                 base_url: str = 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', cancel_event=None):
+                 base_url: str = 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', cancel_event=None,
+                 data_dir=None):
         self.config = config
         self.base_url = base_url
         self.headless = headless
         self.cancel_event = cancel_event
+        self.data_dir = data_dir
         self.session = SessionManager(
             config=self.config,
             profile_dir=profile_dir,
@@ -92,8 +94,18 @@ class TelkomCareScraper:
                 logger.warning("[STOP] Login cancelled by user.")
                 return False
 
-            # Navigate to base URL - profile cookies from user-data-dir handle persistence
-            self.session.driver.get(self.base_url)
+            if self.session.restore_persisted_session():
+                logger.info("Persisted session restored successfully.")
+                self._logged_in = True
+                return True
+
+            if self._is_cancelled():
+                self.last_cancelled = True
+                logger.warning("[STOP] Login cancelled by user.")
+                return False
+
+            if getattr(self.session.driver, 'current_url', None) != self.base_url:
+                self.session.driver.get(self.base_url)
 
             # Give page time to load
             import time
@@ -144,7 +156,7 @@ class TelkomCareScraper:
         reference. This method rebuilds it and navigates back to the graph page.
         """
         from .extractor import GraphExtractor
-        extractor = GraphExtractor(self.session.driver, mode)
+        extractor = GraphExtractor(self.session.driver, mode, data_dir=self.data_dir)
         if not extractor.navigate_to_graph_page():
             logger.error("Failed to navigate to graph page after re-login")
             return None
@@ -159,7 +171,7 @@ class TelkomCareScraper:
                 return None
 
         from .extractor import GraphExtractor
-        extractor = GraphExtractor(self.session.driver, mode)
+        extractor = GraphExtractor(self.session.driver, mode, data_dir=self.data_dir)
 
         # Navigate to graph page ONCE before the loop (Opsi A: browser stays alive)
         if not extractor.navigate_to_graph_page():
@@ -237,7 +249,7 @@ class TelkomCareScraper:
                                 results[target] = {}
                             results[target][date_obj] = path
                         else:
-                            existing_path = get_screenshot_path(target, date_obj)
+                            existing_path = get_screenshot_path(target, date_obj, self.data_dir)
                             if existing_path and existing_path.exists() and existing_path.stat().st_size > 0:
                                 if target not in results:
                                     results[target] = {}
@@ -248,7 +260,7 @@ class TelkomCareScraper:
                         continue
 
                 if resume_mode:
-                    existing_path = get_screenshot_path(target, date_obj)
+                    existing_path = get_screenshot_path(target, date_obj, self.data_dir)
                     if existing_path and existing_path.exists() and existing_path.stat().st_size > 0:
                         self.last_statuses[(target, date_obj)] = {"status": "ok", "error": None}
                         print(f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} existing screenshot")

@@ -4,7 +4,7 @@ import logging
 import time
 from mrtg_automation.report.excel import ExcelReportGenerator
 from mrtg_automation.config import Config
-from mrtg_automation.shared.paths import DATA_DIR, CONFIG_DIR, TEMPLATES_DIR, REPORTS_DIR, LOGS_DIR
+from mrtg_automation.shared.paths import DATA_DIR, CONFIG_DIR, REPORTS_DIR, LOGS_DIR
 
 logger = logging.getLogger('mrtg_automation')
 logger.setLevel(logging.DEBUG)
@@ -13,7 +13,7 @@ fh.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)8s] %(message)s', 
 logger.addHandler(fh)
 
 g = ExcelReportGenerator(Config())
-template = TEMPLATES_DIR / 'MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx'
+template = CONFIG_DIR / 'MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx'
 output = REPORTS_DIR / 'MRTG-Monthly-Report-ocr-noimg.xlsx'
 mapping = CONFIG_DIR / 'list_mrtg_data_position.txt'
 target_list = CONFIG_DIR / 'list_mrtg_targets.csv'

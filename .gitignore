@@ -23,12 +23,12 @@ temp_screenshots/
 *.png
 *.xlsx
 
-# Config examples are kept, but local user edits ignored
-config/SID-MRTG.txt
-config/GRAPH-TITLE-MRTG.txt
-config/report-items.txt
-config/list_mrtg_targets.csv
+# Only sanitized example configuration is tracked
+config/*
+!config/*.example*
 CONTEXT.md
+
+docs/
 
 # Editor / IDE
 .vscode/

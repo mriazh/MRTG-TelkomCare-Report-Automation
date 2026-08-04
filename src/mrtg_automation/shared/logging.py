@@ -1,13 +1,22 @@
 import logging
+from pathlib import Path
 
 from .paths import LOGS_DIR
 
 
-def setup_logging():
+def setup_logging(logs_dir: Path | str | None = None, output_dir: Path | str | None = None):
     """
     Setup application-wide logging to file and minimal console output.
     """
-    log_file = LOGS_DIR / "app.log"
+    if logs_dir is not None:
+        target_dir = Path(logs_dir).expanduser().resolve()
+    elif output_dir is not None:
+        target_dir = Path(output_dir).expanduser().resolve() / "logs"
+    else:
+        target_dir = LOGS_DIR
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    log_file = target_dir / "app.log"
     
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
@@ -30,13 +39,19 @@ def setup_logging():
     # Suppress verbose loggers
     logging.getLogger('PIL').setLevel(logging.WARNING)
 
-def setup_ocr_logger():
+def setup_ocr_logger(logs_dir: Path | str | None = None, output_dir: Path | str | None = None):
     """
     Setup isolated logger for OCR.
     """
-    from .paths import LOGS_DIR
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    log_file = LOGS_DIR / "ocr_report.log"
+    if logs_dir is not None:
+        target_dir = Path(logs_dir).expanduser().resolve()
+    elif output_dir is not None:
+        target_dir = Path(output_dir).expanduser().resolve() / "logs"
+    else:
+        target_dir = LOGS_DIR
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+    log_file = target_dir / "ocr_report.log"
     
     ocr_logger = logging.getLogger('mrtg_automation.ocr')
     ocr_logger.setLevel(logging.DEBUG)

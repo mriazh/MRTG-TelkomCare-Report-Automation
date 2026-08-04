@@ -134,8 +134,8 @@ foreach ($file in $safeConfigs) {
 
 # Copy approved release templates and assets only
 $ApprovedReleaseFiles = @(
-    "templates\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-    "templates\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+    "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+    "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "assets\app_icon.ico"
 )
 foreach ($file in $ApprovedReleaseFiles) {
@@ -155,8 +155,8 @@ $RequiredReleaseFiles = @(
     "config\list_mrtg_targets.example.csv",
     "config\list_mrtg_data_position.txt",
     "config\list_mrtg_data_position_img_only.txt",
-    "templates\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-    "templates\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+    "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+    "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "assets\app_icon.ico",
     "_internal\paddlex\configs\pipelines\OCR.yaml",
     "_internal\paddle\libs\mklml.dll"

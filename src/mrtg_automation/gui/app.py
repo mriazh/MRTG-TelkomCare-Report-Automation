@@ -4,11 +4,13 @@ import logging
 import os
 import sys
 import threading
+from pathlib import Path
 
-from PySide6.QtCore import QDate, QObject, QThread, QUrl, Signal
+from PySide6.QtCore import QDate, QObject, QSettings, QThread, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -19,6 +21,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QLineEdit,
     QPushButton,
     QTextEdit,
     QToolButton,
@@ -33,7 +36,17 @@ from mrtg_automation.gui.update_checker import UpdateManager
 from mrtg_automation.shared.browser_detection import (
     get_browser_display_name,
 )
-from mrtg_automation.shared.paths import REPORTS_DIR, ROOT_DIR, ensure_directories
+from mrtg_automation.shared.paths import (
+    CONFIG_DIR,
+    DATA_DIR,
+    DEFAULT_CONFIG_DIR,
+    DEFAULT_OUTPUT_DIR,
+    REPORTS_DIR,
+    ROOT_DIR,
+    ensure_directories,
+    get_config_files,
+    get_output_paths,
+)
 from mrtg_automation.shared.resume_state import (
     clear_resume_state,
     format_resume_summary,
@@ -48,7 +61,8 @@ class Worker(QObject):
     finished_signal = Signal(int)
 
     def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str,
-                 targets, report_mode, headless, browser_type="auto", resume_state=None, resume_mode=False):
+                 targets, report_mode, headless, browser_type="auto", resume_state=None, resume_mode=False,
+                 output_dir=None, data_dir=None, config_dir=None, reports_dir=None):
         super().__init__()
         self.mode = mode
         self.date_mode = date_mode
@@ -61,6 +75,10 @@ class Worker(QObject):
         self.browser_type = browser_type
         self.resume_state = resume_state
         self.resume_mode = resume_mode
+        self.output_dir = output_dir
+        self.data_dir = data_dir
+        self.config_dir = config_dir
+        self.reports_dir = reports_dir
         self.cancel_event = threading.Event()
         self.pause_event = threading.Event()
 
@@ -139,7 +157,7 @@ class Worker(QObject):
                 if self.mode in ("Scrape", "Full Pipeline"):
                     os.environ["BROWSER_TYPE"] = self.browser_type
                     from mrtg_automation.config import Config
-                    cfg = Config()
+                    cfg = Config(config_dir=self.config_dir)
                     effective = getattr(cfg, 'effective_browser_type', getattr(cfg, 'browser_type', 'chrome'))
                     self.log_signal.emit(f"Browser configuration: {cfg.browser_type} (effective: {effective})")
 
@@ -158,7 +176,10 @@ class Worker(QObject):
                         cancel_event=self.cancel_event,
                         pause_event=self.pause_event,
                         resume_state=self.resume_state,
-                        resume_mode=self.resume_mode
+                        resume_mode=self.resume_mode,
+                        output_dir=self.output_dir,
+                        data_dir=self.data_dir,
+                        config_dir=self.config_dir
                     )
                 elif self.mode == "Report":
                     exit_code = run_report_command(
@@ -170,7 +191,11 @@ class Worker(QObject):
                         cancel_event=self.cancel_event,
                         pause_event=self.pause_event,
                         resume_state=self.resume_state,
-                        resume_mode=self.resume_mode
+                        resume_mode=self.resume_mode,
+                        output_dir=self.output_dir,
+                        data_dir=self.data_dir,
+                        config_dir=self.config_dir,
+                        reports_dir=self.reports_dir
                     )
                 elif self.mode == "Full Pipeline":
                     exit_code = run_full_command(
@@ -184,7 +209,11 @@ class Worker(QObject):
                         cancel_event=self.cancel_event,
                         pause_event=self.pause_event,
                         resume_state=self.resume_state,
-                        resume_mode=self.resume_mode
+                        resume_mode=self.resume_mode,
+                        output_dir=self.output_dir,
+                        data_dir=self.data_dir,
+                        config_dir=self.config_dir,
+                        reports_dir=self.reports_dir
                     )
             except Exception as e:
                 self.log_signal.emit(f"[FATAL] {str(e)}")
@@ -202,11 +231,21 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MRTG TelkomCare Report Automation")
         self.resize(800, 600)
 
-        ensure_directories()
+        self.settings = QSettings("MRTG", "TelkomCareReportAutomation")
+        raw_output_root = self.settings.value("output_root", None) or self.settings.value("output_dir", None)
+        self.output_root = Path(raw_output_root) if raw_output_root else DEFAULT_OUTPUT_DIR
+        self.config_dir = Path(self.settings.value("config_dir", str(DEFAULT_CONFIG_DIR)))
+        self.paths = get_output_paths(output_root=self.output_root)
+        self.data_dir = self.paths.data_dir
+        self.reports_dir = self.paths.reports_dir
+        self.logs_dir = self.paths.logs_dir
+
+        ensure_directories(output_root=self.output_root)
 
         self.worker_thread = None
         self.worker = None
         self.pending_resume_state = None
+
         self.update_manager = UpdateManager(self)
 
         self.setup_ui()
@@ -259,6 +298,12 @@ class MainWindow(QMainWindow):
                     pass
                 self.targets_cb.setCurrentText(state.get("targets_filter", "image"))
                 self.report_mode_cb.setCurrentText(state.get("report_mode", "image"))
+                if state.get("output_dir"):
+                    self._set_path("output_root", state["output_dir"], self.output_root_input)
+                elif state.get("output_root"):
+                    self._set_path("output_root", state["output_root"], self.output_root_input)
+                if state.get("config_dir"):
+                    self._set_path("config_dir", state["config_dir"], self.config_dir_input)
                 if state.get("browser_type"):
                     b_type = state.get("browser_type").lower()
                     idx = self.browser_cb.findData(b_type)
@@ -301,7 +346,11 @@ class MainWindow(QMainWindow):
         action_log.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(app_info.get_log_dir()))))
         menu.addAction(action_log)
 
-        action_output = QAction("Open Output Folder", self)
+        action_output_root = QAction("Open Output Root Folder", self)
+        action_output_root.triggered.connect(self.open_output_root_folder)
+        menu.addAction(action_output_root)
+
+        action_output = QAction("Open Reports Folder", self)
         action_output.triggered.connect(self.open_output_folder)
         menu.addAction(action_output)
 
@@ -348,13 +397,56 @@ class MainWindow(QMainWindow):
 
         self.targets_cb = QComboBox()
         self.targets_cb.addItems(["image", "ocr", "all"])
+        self.targets_cb.currentTextChanged.connect(self.on_mode_changed)
         form_layout.addRow("Targets:", self.targets_cb)
 
         self.report_mode_cb = QComboBox()
         self.report_mode_cb.addItems(["image", "ocr"])
+        self.report_mode_cb.currentTextChanged.connect(self.on_mode_changed)
         form_layout.addRow("Report Mode:", self.report_mode_cb)
 
+        self.config_dir_input, config_dir_row = self._create_path_row(
+            "Config folder", self.config_dir, self.choose_config_dir
+        )
+        form_layout.addRow("Config:", config_dir_row)
+
+        self.output_root_input, output_root_row = self._create_path_row(
+            "Output folder", self.output_root, self.choose_output_root
+        )
+        form_layout.addRow("Output:", output_root_row)
+
+        cfg_files = get_config_files(self.config_dir)
+        self.env_file_input = self._create_readonly_input(cfg_files.env)
+        form_layout.addRow(".env Location:", self.env_file_input)
+
+        self.targets_file_input = self._create_readonly_input(cfg_files.targets)
+        form_layout.addRow("Targets CSV Location:", self.targets_file_input)
+
+        self.pos_ocr_input = self._create_readonly_input(cfg_files.position_ocr)
+        form_layout.addRow("Position OCR Location:", self.pos_ocr_input)
+
+        self.pos_img_input = self._create_readonly_input(cfg_files.position_img_only)
+        form_layout.addRow("Position Img-Only Location:", self.pos_img_input)
+
+        self.tpl_ocr_input = self._create_readonly_input(cfg_files.template_ocr)
+        form_layout.addRow("Template OCR Location:", self.tpl_ocr_input)
+
+        self.tpl_img_input = self._create_readonly_input(cfg_files.template_img_only)
+        form_layout.addRow("Template Img-Only Location:", self.tpl_img_input)
+
+        self.out_data_input = self._create_readonly_input(self.paths.data_dir)
+        form_layout.addRow("Output Data MRTG Location:", self.out_data_input)
+
+        self.out_report_input = self._create_readonly_input(self.paths.reports_dir)
+        form_layout.addRow("Output Report Excel MRTG Location:", self.out_report_input)
+
+        self.path_summary_label = QLabel()
+        self.path_summary_label.setStyleSheet("color: #555555; font-size: 11px;")
+        self.update_path_summary()
+        form_layout.addRow("Derived Paths:", self.path_summary_label)
+
         self.browser_cb = QComboBox()
+
         for b_type in ["Chrome", "Edge", "Firefox", "Chromium"]:
             display_name = get_browser_display_name(b_type)
             self.browser_cb.addItem(display_name, b_type.lower())
@@ -400,36 +492,147 @@ class MainWindow(QMainWindow):
 
         self.on_mode_changed(self.mode_cb.currentText())
 
+    def _create_path_row(self, label: str, path: Path, chooser):
+        path_input = QLineEdit(str(path))
+        path_input.setReadOnly(True)
+        path_input.setToolTip(str(path))
+        path_input.setAccessibleName(label)
+        browse_button = QPushButton("Browse...")
+        browse_button.setAccessibleName(f"Browse {label}")
+        browse_button.clicked.connect(chooser)
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(path_input)
+        layout.addWidget(browse_button)
+        return path_input, row
+
+    def _create_readonly_input(self, text=""):
+        inp = QLineEdit(str(text))
+        inp.setReadOnly(True)
+        inp.setToolTip(str(text))
+        inp.setStyleSheet("background-color: #f5f5f5; color: #333333;")
+        return inp
+
+    def update_location_controls_state(self):
+        if not hasattr(self, 'mode_cb'):
+            return
+        op_mode = self.mode_cb.currentText()
+        if op_mode == "Scrape":
+            is_img_selected = self.targets_cb.currentText() in ["image", "all"]
+        elif op_mode == "Report":
+            is_img_selected = self.report_mode_cb.currentText() == "image"
+        else:  # Full Pipeline
+            is_img_selected = (self.targets_cb.currentText() in ["image", "all"]) or (self.report_mode_cb.currentText() == "image")
+
+        if hasattr(self, 'pos_img_input'):
+            self.pos_img_input.setEnabled(is_img_selected)
+        if hasattr(self, 'tpl_img_input'):
+            self.tpl_img_input.setEnabled(is_img_selected)
+
+    def update_path_summary(self):
+        if hasattr(self, 'path_summary_label'):
+            cfg = get_config_files(self.config_dir)
+            self.path_summary_label.setText(
+                f"Data: {self.paths.data_dir.name}  |  Reports: {self.paths.reports_dir.name}  |  Logs: {self.paths.logs_dir.name}  |  State: {self.paths.state_dir.name}"
+            )
+            tooltip_lines = [
+                f"Output Root: {self.output_root}",
+                f"  - output data MRTG: {self.paths.data_dir}",
+                f"  - output report Excel MRTG: {self.paths.reports_dir}",
+                f"  - logs: {self.paths.logs_dir}",
+                f"  - state: {self.paths.state_dir}",
+                f"  - screenshots: {self.paths.screenshots_dir}",
+                f"Config Root: {self.config_dir}",
+                f"  - .env: {cfg.env}",
+                f"  - list_mrtg_targets.csv: {cfg.targets}",
+                f"  - list_mrtg_data_position.txt: {cfg.position_ocr}",
+                f"  - list_mrtg_data_position_img_only.txt: {cfg.position_img_only}",
+                f"  - MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx: {cfg.template_ocr}",
+                f"  - MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx: {cfg.template_img_only}",
+            ]
+            self.path_summary_label.setToolTip("\n".join(tooltip_lines))
+
+        if hasattr(self, 'env_file_input'):
+            cfg = get_config_files(self.config_dir)
+            self.env_file_input.setText(str(cfg.env))
+            self.targets_file_input.setText(str(cfg.targets))
+            self.pos_ocr_input.setText(str(cfg.position_ocr))
+            self.pos_img_input.setText(str(cfg.position_img_only))
+            self.tpl_ocr_input.setText(str(cfg.template_ocr))
+            self.tpl_img_input.setText(str(cfg.template_img_only))
+            self.out_data_input.setText(str(self.paths.data_dir))
+            self.out_report_input.setText(str(self.paths.reports_dir))
+            self.update_location_controls_state()
+
+    def _set_path(self, setting_key: str, value: str, field: QLineEdit):
+        selected = Path(value).expanduser().resolve()
+        field.setText(str(selected))
+        field.setToolTip(str(selected))
+        self.settings.setValue(setting_key, str(selected))
+        setattr(self, setting_key, selected)
+        self.paths = get_output_paths(output_root=self.output_root)
+        self.data_dir = self.paths.data_dir
+        self.reports_dir = self.paths.reports_dir
+        self.logs_dir = self.paths.logs_dir
+        ensure_directories(output_root=self.output_root)
+        self.update_path_summary()
+
+    def choose_output_root(self):
+        selected = QFileDialog.getExistingDirectory(self, "Select Output Root folder", str(self.output_root))
+        if selected:
+            self._set_path("output_root", selected, self.output_root_input)
+
+    def choose_config_dir(self):
+        selected = QFileDialog.getExistingDirectory(self, "Select config folder", str(self.config_dir))
+        if selected:
+            self._set_path("config_dir", selected, self.config_dir_input)
+
     def get_selected_browser_type(self) -> str:
         data = self.browser_cb.currentData()
         if data is None:
             return self.browser_cb.currentText()
         return data
 
-    def on_mode_changed(self, text):
-        if text == "Scrape":
+    def on_mode_changed(self, text=None):
+        mode = self.mode_cb.currentText()
+        if mode == "Scrape":
             self.targets_cb.setEnabled(True)
             self.report_mode_cb.setEnabled(False)
             self.browser_cb.setEnabled(True)
             self.headless_cb.setEnabled(True)
-        elif text == "Report":
+        elif mode == "Report":
             self.targets_cb.setEnabled(False)
             self.report_mode_cb.setEnabled(True)
             self.browser_cb.setEnabled(False)
             self.headless_cb.setEnabled(False)
-        elif text == "Full Pipeline":
+        elif mode == "Full Pipeline":
             self.targets_cb.setEnabled(True)
             self.report_mode_cb.setEnabled(True)
             self.browser_cb.setEnabled(True)
             self.headless_cb.setEnabled(True)
+        self.update_location_controls_state()
 
     def log_message(self, message):
         self.log_text.append(message)
 
+    def open_output_root_folder(self):
+        try:
+            self.output_root.mkdir(parents=True, exist_ok=True)
+            if os.name == 'nt':
+                os.startfile(str(self.output_root))
+            else:
+                subprocess.Popen(['xdg-open', str(self.output_root)])
+        except Exception as e:
+            self.log_message(f"Could not open output root folder: {e}")
+
     def open_output_folder(self):
         try:
-            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(REPORTS_DIR))
+            self.reports_dir.mkdir(parents=True, exist_ok=True)
+            if os.name == 'nt':
+                os.startfile(str(self.reports_dir))
+            else:
+                subprocess.Popen(['xdg-open', str(self.reports_dir)])
         except Exception as e:
             self.log_message(f"Could not open output folder: {e}")
 
@@ -517,6 +720,10 @@ class MainWindow(QMainWindow):
                 "targets_filter": self.targets_cb.currentText(),
                 "report_mode": self.report_mode_cb.currentText(),
                 "browser_type": self.get_selected_browser_type(),
+                "config_dir": str(self.config_dir),
+                "output_dir": str(self.output_root),
+                "data_dir": str(self.data_dir),
+                "reports_dir": str(self.reports_dir),
                 "current_phase": phase,
                 "total_items": 0,
                 "completed_items_count": 0,
@@ -541,7 +748,11 @@ class MainWindow(QMainWindow):
             headless=self.headless_cb.isChecked(),
             browser_type=self.get_selected_browser_type(),
             resume_state=resume_state,
-            resume_mode=resume_mode
+            resume_mode=resume_mode,
+            output_dir=self.output_root,
+            data_dir=self.data_dir,
+            config_dir=self.config_dir,
+            reports_dir=self.reports_dir
         )
         self.worker.moveToThread(self.worker_thread)
 

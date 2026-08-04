@@ -24,13 +24,14 @@ def build_canonical_filename(target_id: str, date_obj: Union[datetime, date]) ->
     date_str = date_obj.strftime("%Y%m%d")
     return f"MRTG_{safe_id}_{date_str}.png"
 
-def get_screenshot_path(target_id: str, date_obj: Union[datetime, date]) -> Path:
+def get_screenshot_path(target_id: str, date_obj: Union[datetime, date], data_dir: Path = None) -> Path:
     """
     Return full Path object to the canonical screenshot target file.
     """
     date_folder = date_obj.strftime("%Y%m%d")
     filename = build_canonical_filename(target_id, date_obj)
-    return DATA_DIR / date_folder / filename
+    root = Path(data_dir) if data_dir is not None else DATA_DIR
+    return root / date_folder / filename
 
 
 def is_image_file_valid(image_path) -> bool:

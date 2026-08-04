@@ -230,8 +230,8 @@ $RequiredZipFiles = @(
     "MRTG-TelkomCare-Portable/config/list_mrtg_targets.example.csv",
     "MRTG-TelkomCare-Portable/config/list_mrtg_data_position.txt",
     "MRTG-TelkomCare-Portable/config/list_mrtg_data_position_img_only.txt",
-    "MRTG-TelkomCare-Portable/templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-    "MRTG-TelkomCare-Portable/templates/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+    "MRTG-TelkomCare-Portable/config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+    "MRTG-TelkomCare-Portable/config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "MRTG-TelkomCare-Portable/assets/app_icon.ico"
 )
 

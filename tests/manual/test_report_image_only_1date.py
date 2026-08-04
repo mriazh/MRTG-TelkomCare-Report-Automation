@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from mrtg_automation.report.excel import ExcelReportGenerator
 from mrtg_automation.config import Config
-from mrtg_automation.shared.paths import DATA_DIR, CONFIG_DIR, TEMPLATES_DIR, REPORTS_DIR
+from mrtg_automation.shared.paths import DATA_DIR, CONFIG_DIR, REPORTS_DIR
 
 def main():
     print("=" * 70)
@@ -12,9 +12,9 @@ def main():
     
     mapping = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
     target_list = CONFIG_DIR / "list_mrtg_targets.csv"
-    template = TEMPLATES_DIR / "MRTG-Monthly-Report-image-only.xlsx"
+    template = CONFIG_DIR / "MRTG-Monthly-Report-image-only.xlsx"
     if not template.exists():
-        template = TEMPLATES_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+        template = CONFIG_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
     
     output = REPORTS_DIR / "MRTG-Monthly-Report-image-only-smoke.xlsx"
     
