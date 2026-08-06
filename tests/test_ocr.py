@@ -6,20 +6,14 @@ from mrtg_automation.shared.logging import setup_ocr_logger
 setup_ocr_logger()
 
 g = ExcelReportGenerator(Config())
-template = CONFIG_DIR / 'MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx'
-output = REPORTS_DIR / 'MRTG-Monthly-Report-ocr.xlsx'
-mapping = CONFIG_DIR / 'list_mrtg_data_position.txt'
-target_list = CONFIG_DIR / 'list_mrtg_targets.csv'
+template = CONFIG_DIR / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+output = REPORTS_DIR / "MRTG-Monthly-Report-ocr.xlsx"
+mapping = CONFIG_DIR / "list_mrtg_data_position.txt"
+target_list = CONFIG_DIR / "list_mrtg_targets.csv"
 
-summary = g.generate(
-    'OCR_IMAGE',
-    DATA_DIR,
-    template,
-    output,
-    mapping,
-    target_list,
-    '20260401'
+summary = g.generate("OCR_IMAGE", DATA_DIR, template, output, mapping, target_list, "20260401")
+
+print(
+    f"TEST DONE: OCR_OK={summary['ocr_ok']}, PARTIAL={summary['ocr_partial']}, FAIL={summary['ocr_fail']}"
 )
-
-print(f"TEST DONE: OCR_OK={summary['ocr_ok']}, PARTIAL={summary['ocr_partial']}, FAIL={summary['ocr_fail']}")
 print(ExcelReportGenerator.format_summary_table(summary))

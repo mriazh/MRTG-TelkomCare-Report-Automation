@@ -19,8 +19,12 @@ class TestTelkomCareLogin(unittest.TestCase):
         result = scraper.login()
 
         self.assertTrue(result)
-        calls = [c[0] for c in mock_session.mock_calls if c[0] in ('start', 'restore_persisted_session', 'auto_login')]
-        self.assertEqual(calls, ['start', 'restore_persisted_session', 'auto_login'])
+        calls = [
+            c[0]
+            for c in mock_session.mock_calls
+            if c[0] in ("start", "restore_persisted_session", "auto_login")
+        ]
+        self.assertEqual(calls, ["start", "restore_persisted_session", "auto_login"])
 
     def test_login_attempts_restore_persisted_session_before_auto_login(self):
         scraper = TelkomCareScraper()

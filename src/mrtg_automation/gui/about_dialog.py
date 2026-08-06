@@ -23,7 +23,9 @@ class AboutDialog(QDialog):
         build_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(build_label)
 
-        desc_label = QLabel("Automation tool for scraping MRTG screenshots from TelkomCare and generating Excel reports.")
+        desc_label = QLabel(
+            "Automation tool for scraping MRTG screenshots from TelkomCare and generating Excel reports."
+        )
         desc_label.setWordWrap(True)
         desc_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(desc_label)
@@ -32,7 +34,9 @@ class AboutDialog(QDialog):
         deps_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(deps_label)
 
-        links_label = QLabel(f"<a href='https://github.com/{app_info.GITHUB_REPO}'>GitHub</a> | <a href='{app_info.RELEASES_URL}'>Releases</a>")
+        links_label = QLabel(
+            f"<a href='https://github.com/{app_info.GITHUB_REPO}'>GitHub</a> | <a href='{app_info.RELEASES_URL}'>Releases</a>"
+        )
         links_label.setOpenExternalLinks(True)
         links_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(links_label)
@@ -45,6 +49,7 @@ class AboutDialog(QDialog):
         btn_layout.addStretch()
 
         layout.addLayout(btn_layout)
+
 
 def show_about_dialog(parent=None):
     dialog = AboutDialog(parent)

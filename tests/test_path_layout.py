@@ -41,19 +41,48 @@ class TestPathLayout(unittest.TestCase):
 
         self.assertEqual(cfg["config_root"], config_root.resolve())
         self.assertEqual(cfg["env"], (config_root / ".env").resolve())
-        self.assertEqual(cfg["position_ocr"], (config_root / "list_mrtg_data_position.txt").resolve())
-        self.assertEqual(cfg["position_img_only"], (config_root / "list_mrtg_data_position_img_only.txt").resolve())
+        self.assertEqual(
+            cfg["position_ocr"], (config_root / "list_mrtg_data_position.txt").resolve()
+        )
+        self.assertEqual(
+            cfg["position_img_only"],
+            (config_root / "list_mrtg_data_position_img_only.txt").resolve(),
+        )
         self.assertEqual(cfg["targets"], (config_root / "list_mrtg_targets.csv").resolve())
-        self.assertEqual(cfg["template_ocr"], (config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx").resolve())
-        self.assertEqual(cfg["template_img_only"], (config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx").resolve())
+        self.assertEqual(
+            cfg["template_ocr"],
+            (
+                config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+            ).resolve(),
+        )
+        self.assertEqual(
+            cfg["template_img_only"],
+            (
+                config_root
+                / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+            ).resolve(),
+        )
 
         # Test attribute access
         self.assertEqual(cfg.env, (config_root / ".env").resolve())
         self.assertEqual(cfg.targets, (config_root / "list_mrtg_targets.csv").resolve())
         self.assertEqual(cfg.position_ocr, (config_root / "list_mrtg_data_position.txt").resolve())
-        self.assertEqual(cfg.position_img_only, (config_root / "list_mrtg_data_position_img_only.txt").resolve())
-        self.assertEqual(cfg.template_ocr, (config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx").resolve())
-        self.assertEqual(cfg.template_img_only, (config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx").resolve())
+        self.assertEqual(
+            cfg.position_img_only, (config_root / "list_mrtg_data_position_img_only.txt").resolve()
+        )
+        self.assertEqual(
+            cfg.template_ocr,
+            (
+                config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+            ).resolve(),
+        )
+        self.assertEqual(
+            cfg.template_img_only,
+            (
+                config_root
+                / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+            ).resolve(),
+        )
 
     def test_ensure_directories_creates_all_subdirs(self):
         output_root = self.temp_dir / "out"

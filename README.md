@@ -78,6 +78,7 @@ Start from `config/.env.example`. The important settings are:
 | `GEMINI_MODELS` | Comma-separated Gemini model fallback order |
 | `OCR_CONFIDENCE_THRESHOLD` | PaddleOCR confidence threshold |
 | `OCR_GEMINI_OBSERVE` | Enables optional OCR observation behavior |
+| `OCR_MAX_RETRIES` | Maximum finite retries per OCR/report item (default `3`) |
 
 Passwords and API keys are not required for the normal manual-login flow. If automated login or Gemini fallback is enabled, protect the file and rotate credentials if it is ever exposed.
 
@@ -152,6 +153,18 @@ python -m mrtg_automation full --date 20260819 --targets ocr --report-mode ocr
 
 Use `--start-date YYYYMMDD --end-date YYYYMMDD` for a date range. Use `--no-images` on report/full commands when values are needed without embedding screenshots. The source CLI reads configuration from the repository's `config` directory.
 
+For a reproducible developer environment, use Python 3.12 with uv:
+
+```powershell
+uv sync --locked --extra gui
+uv run --locked --extra gui python -m pytest -q
+uv run --locked ruff check src tests
+uv run --locked ruff format --check src tests
+uv run --locked mypy
+```
+
+uv is a development/verification tool only; packaged end users do not need uv.
+
 ### Debian/Linux source
 
 ```bash
@@ -178,7 +191,7 @@ All runtime data is kept beside the executable in packaged mode, or at the repos
 ```text
 config/.env                         # private local settings, never share
 config/list_mrtg_targets.csv        # private local target list, never share
-data/MRTG-Data/YYYYMMDD/*.png       # captured screenshots
+output/data/MRTG-Data/YYYYMMDD/*.png # captured screenshots
 output/reports/*.xlsx                # generated Excel reports
 output/logs/app.log                  # application log
 output/logs/ocr_report.log           # OCR-specific log when OCR is used
@@ -223,7 +236,7 @@ Verify that `config/list_mrtg_targets.csv` exists beside the executable, has the
 
 ### No report is generated
 
-Run Scrape first and verify that `data/MRTG-Data/YYYYMMDD` contains valid PNG files. Then run Report for the same date. Check `output/logs/app.log` and `output/logs/ocr_report.log` for details.
+Run Scrape first and verify that `output/data/MRTG-Data/YYYYMMDD` contains valid PNG files. Then run Report for the same date. Check `output/logs/app.log` and `output/logs/ocr_report.log` for details.
 
 ### Browser or login fails
 
@@ -231,7 +244,7 @@ Install a supported browser, select it explicitly in the GUI, verify the configu
 
 ### OCR uses Gemini or reports partial values
 
-This is expected when PaddleOCR is incomplete or below the configured confidence threshold. Check the OCR summary and logs. Ensure `GEMINI_API_KEY` is configured only when Gemini fallback is permitted and available.
+This is expected when PaddleOCR is incomplete or below the configured confidence threshold. Check the OCR summary and logs. Ensure `GEMINI_API_KEY` is configured only when Gemini fallback is permitted and available. Gemini candidates are attempted in the exact `GEMINI_MODELS` order from `.env.example`; each candidate is abandoned after three observed failed calls for that operation. OCR/report items are retried at most `OCR_MAX_RETRIES` times (default three), and unresolved items remain visible in the final summary. The application does not query provider quota/RPD reset state or wait for a reset.
 
 ## Packaging and Release Validation
 

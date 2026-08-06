@@ -22,9 +22,16 @@ class TestPackagingContract(unittest.TestCase):
         self.assertIn("PROJECT_ROOT =", content)
         self.assertIn("gui_launcher.py", content)
         name_count = content.count("name='MRTG-TelkomCare'")
-        self.assertEqual(name_count, 2, f"Expected exactly two name='MRTG-TelkomCare' declarations, found {name_count}")
+        self.assertEqual(
+            name_count,
+            2,
+            f"Expected exactly two name='MRTG-TelkomCare' declarations, found {name_count}",
+        )
         self.assertNotIn(".venv312/Lib/site-packages", content)
-        self.assertIn("os.path.join(PROJECT_ROOT, '.venv312', 'Lib', 'site-packages', 'paddlex', 'configs')", content)
+        self.assertIn(
+            "os.path.join(PROJECT_ROOT, '.venv312', 'Lib', 'site-packages', 'paddlex', 'configs')",
+            content,
+        )
 
     def test_build_script_contract(self):
         # This is a basic check. Actual execution is separate.
@@ -38,6 +45,7 @@ class TestPackagingContract(unittest.TestCase):
         # Check for forbidden patterns directly
         self.assertNotIn(".venv312/Lib/site-packages", content)
         self.assertNotIn(".git", content)
+
 
 if __name__ == "__main__":
     unittest.main()

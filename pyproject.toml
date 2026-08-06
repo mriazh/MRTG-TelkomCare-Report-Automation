@@ -14,8 +14,33 @@ dependencies = [
     "selenium",
     "webdriver-manager",
     "Pillow",
-    "pyotp"
+    "pyotp>=2.9",
+    "pydantic>=2.7,<3"
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9",
+    "ruff>=0.6,<1",
+    "mypy>=1.10,<2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tests/manual", "manual", ".git", "__pycache__", ".pytest_cache", "*.egg-info"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_release_metadata.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
 
 [project.optional-dependencies]
 ocr = [
@@ -25,3 +50,94 @@ ocr = [
 gui = [
     "PySide6"
 ]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+exclude = '(^|/)tests/manual/'
+ignore_missing_imports = true
+warn_unused_configs = true
+
+# Paddle / paddleocr are optional dependencies (ocr extra)
+[[tool.mypy.overrides]]
+module = [
+    "paddle.*",
+    "paddleocr.*",
+    "PIL.*",
+    "openpyxl.*",
+    "selenium.*",
+    "webdriver_manager.*",
+    "pyotp.*",
+    "PySide6.*"
+]
+ignore_missing_imports = true
+
+# Documented rationale:
+# mrtg_automation.shared.filenames:
+# - assignment: legacy parameter default data_dir=None without Optional type annotation
+[[tool.mypy.overrides]]
+module = "mrtg_automation.shared.filenames"
+disable_error_code = ["assignment"]
+
+# mrtg_automation.report.mapping:
+# - var-annotated: unannotated empty dictionaries/lists
+# - union-attr: regex match group access without explicit None guard
+# - assignment: legacy parameter default enabled_for=None without Optional type annotation
+[[tool.mypy.overrides]]
+module = "mrtg_automation.report.mapping"
+disable_error_code = ["assignment", "union-attr", "var-annotated"]
+
+# mrtg_automation.report.ocr:
+# - assignment: dynamic dict return types and optional imports
+# - import-not-found: paddle / paddleocr are optional dependencies
+[[tool.mypy.overrides]]
+module = "mrtg_automation.report.ocr"
+disable_error_code = ["assignment", "attr-defined", "import-not-found"]
+
+# mrtg_automation.report.images:
+# - assignment: PIL Image vs ImageFile subtype assignment
+[[tool.mypy.overrides]]
+module = "mrtg_automation.report.images"
+disable_error_code = ["assignment"]
+
+# mrtg_automation.report.excel:
+# - assignment: dynamic fallback OCRExtractor class assignment and Optional parameter defaults
+# - attr-defined: dynamic OCRExtractor method invocations on conditional instances
+# - operator: untyped Excel cell coordinate arithmetic
+[[tool.mypy.overrides]]
+module = "mrtg_automation.report.excel"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "index", "misc", "operator", "union-attr"]
+
+# mrtg_automation.scraper.session:
+# - assignment: Optional WebDriver assignments and default parameters
+# - attr-defined: dynamic WebDriver/WebElement method resolution
+# - arg-type: Selenium wait until callable parameter variance
+# - type-var: generic WebElement typing in wait methods
+[[tool.mypy.overrides]]
+module = "mrtg_automation.scraper.session"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "type-var"]
+
+# mrtg_automation.scraper.telkomcare:
+# - assignment: Optional parameter defaults and dynamic locator mapping
+# - return-value: untyped dictionary scraping return types
+# - union-attr: regex match group access on parsed targets
+# - var-annotated: unannotated target collections
+[[tool.mypy.overrides]]
+module = "mrtg_automation.scraper.telkomcare"
+disable_error_code = ["assignment", "return-value", "union-attr", "var-annotated"]
+
+# mrtg_automation.scraper.extractor:
+# - misc: dynamic date range calculation and regex grouping
+# - operator: tuple coordinate arithmetic on extracted graph metadata
+[[tool.mypy.overrides]]
+module = "mrtg_automation.scraper.extractor"
+disable_error_code = ["misc", "operator"]
+
+# mrtg_automation.cli:
+# - arg-type: passing optional CLI arguments to report/scraper functions
+# - var-annotated: unannotated CLI target collections and date arrays
+[[tool.mypy.overrides]]
+module = "mrtg_automation.cli"
+disable_error_code = ["arg-type", "var-annotated"]
+
+# Manual scripts intentionally execute live browser/data workflows at import time.

@@ -1,7 +1,7 @@
 import contextlib
 import io
-import logging
 import os
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -37,11 +37,8 @@ from mrtg_automation.shared.browser_detection import (
     get_browser_display_name,
 )
 from mrtg_automation.shared.paths import (
-    CONFIG_DIR,
-    DATA_DIR,
     DEFAULT_CONFIG_DIR,
     DEFAULT_OUTPUT_DIR,
-    REPORTS_DIR,
     ROOT_DIR,
     ensure_directories,
     get_config_files,
@@ -60,9 +57,24 @@ class Worker(QObject):
     log_signal = Signal(str)
     finished_signal = Signal(int)
 
-    def __init__(self, mode, date_mode, date_str, start_date_str, end_date_str,
-                 targets, report_mode, headless, browser_type="auto", resume_state=None, resume_mode=False,
-                 output_dir=None, data_dir=None, config_dir=None, reports_dir=None):
+    def __init__(
+        self,
+        mode,
+        date_mode,
+        date_str,
+        start_date_str,
+        end_date_str,
+        targets,
+        report_mode,
+        headless,
+        browser_type="auto",
+        resume_state=None,
+        resume_mode=False,
+        output_dir=None,
+        data_dir=None,
+        config_dir=None,
+        reports_dir=None,
+    ):
         super().__init__()
         self.mode = mode
         self.date_mode = date_mode
@@ -86,7 +98,9 @@ class Worker(QObject):
         self.cancel_event.set()
         self.pause_event.clear()
         try:
-            self.log_signal.emit("Stop requested. Cancelling startup/login or waiting for current item to finish...")
+            self.log_signal.emit(
+                "Stop requested. Cancelling startup/login or waiting for current item to finish..."
+            )
         except RuntimeError:
             pass  # Ignore if Qt window/signal source is destroyed during app close
 
@@ -97,9 +111,15 @@ class Worker(QObject):
             if not stripped:
                 return True
             noise_markers = [
-                "Stacktrace:", "Chromedriver!", "(Session info:",
-                "For documentation on this error", "Build info:",
-                "System info:", "Driver info:", "KERNEL32!", "Ntdll!",
+                "Stacktrace:",
+                "Chromedriver!",
+                "(Session info:",
+                "For documentation on this error",
+                "Build info:",
+                "System info:",
+                "Driver info:",
+                "KERNEL32!",
+                "Ntdll!",
             ]
             for marker in noise_markers:
                 if marker in stripped:
@@ -157,14 +177,21 @@ class Worker(QObject):
                 if self.mode in ("Scrape", "Full Pipeline"):
                     os.environ["BROWSER_TYPE"] = self.browser_type
                     from mrtg_automation.config import Config
+
                     cfg = Config(config_dir=self.config_dir)
-                    effective = getattr(cfg, 'effective_browser_type', getattr(cfg, 'browser_type', 'chrome'))
-                    self.log_signal.emit(f"Browser configuration: {cfg.browser_type} (effective: {effective})")
+                    effective = getattr(
+                        cfg, "effective_browser_type", getattr(cfg, "browser_type", "chrome")
+                    )
+                    self.log_signal.emit(
+                        f"Browser configuration: {cfg.browser_type} (effective: {effective})"
+                    )
 
                 if self.date_mode == "Single Date":
                     self.log_signal.emit(f"Date: {self.date_str}")
                 else:
-                    self.log_signal.emit(f"Date range: {self.start_date_str} to {self.end_date_str}")
+                    self.log_signal.emit(
+                        f"Date range: {self.start_date_str} to {self.end_date_str}"
+                    )
 
                 if self.mode == "Scrape":
                     exit_code = run_scrape_command(
@@ -179,7 +206,7 @@ class Worker(QObject):
                         resume_mode=self.resume_mode,
                         output_dir=self.output_dir,
                         data_dir=self.data_dir,
-                        config_dir=self.config_dir
+                        config_dir=self.config_dir,
                     )
                 elif self.mode == "Report":
                     exit_code = run_report_command(
@@ -195,7 +222,7 @@ class Worker(QObject):
                         output_dir=self.output_dir,
                         data_dir=self.data_dir,
                         config_dir=self.config_dir,
-                        reports_dir=self.reports_dir
+                        reports_dir=self.reports_dir,
                     )
                 elif self.mode == "Full Pipeline":
                     exit_code = run_full_command(
@@ -213,7 +240,7 @@ class Worker(QObject):
                         output_dir=self.output_dir,
                         data_dir=self.data_dir,
                         config_dir=self.config_dir,
-                        reports_dir=self.reports_dir
+                        reports_dir=self.reports_dir,
                     )
             except Exception as e:
                 self.log_signal.emit(f"[FATAL] {str(e)}")
@@ -225,6 +252,7 @@ class Worker(QObject):
 
         self.finished_signal.emit(exit_code)
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -232,7 +260,9 @@ class MainWindow(QMainWindow):
         self.resize(800, 600)
 
         self.settings = QSettings("MRTG", "TelkomCareReportAutomation")
-        raw_output_root = self.settings.value("output_root", None) or self.settings.value("output_dir", None)
+        raw_output_root = self.settings.value("output_root", None) or self.settings.value(
+            "output_dir", None
+        )
         self.output_root = Path(raw_output_root) if raw_output_root else DEFAULT_OUTPUT_DIR
         self.config_dir = Path(self.settings.value("config_dir", str(DEFAULT_CONFIG_DIR)))
         self.paths = get_output_paths(output_root=self.output_root)
@@ -269,7 +299,10 @@ class MainWindow(QMainWindow):
 
             msg = QMessageBox(self)
             msg.setWindowTitle("Unfinished Run Found")
-            msg.setText("An unfinished run was found. What would you like to do?\n\n" + format_resume_summary(state))
+            msg.setText(
+                "An unfinished run was found. What would you like to do?\n\n"
+                + format_resume_summary(state)
+            )
             btn_resume = msg.addButton("Resume", QMessageBox.AcceptRole)
             btn_new = msg.addButton("Start New", QMessageBox.RejectRole)
             btn_discard = msg.addButton("Discard", QMessageBox.DestructiveRole)
@@ -339,11 +372,15 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
 
         action_update = QAction("Check for Updates", self)
-        action_update.triggered.connect(lambda: self.update_manager.check_for_updates(is_manual=True))
+        action_update.triggered.connect(
+            lambda: self.update_manager.check_for_updates(is_manual=True)
+        )
         menu.addAction(action_update)
 
         action_log = QAction("Open Log Folder", self)
-        action_log.triggered.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(app_info.get_log_dir()))))
+        action_log.triggered.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(app_info.get_log_dir())))
+        )
         menu.addAction(action_log)
 
         action_output_root = QAction("Open Output Root Folder", self)
@@ -515,7 +552,7 @@ class MainWindow(QMainWindow):
         return inp
 
     def update_location_controls_state(self):
-        if not hasattr(self, 'mode_cb'):
+        if not hasattr(self, "mode_cb"):
             return
         op_mode = self.mode_cb.currentText()
         if op_mode == "Scrape":
@@ -523,15 +560,17 @@ class MainWindow(QMainWindow):
         elif op_mode == "Report":
             is_img_selected = self.report_mode_cb.currentText() == "image"
         else:  # Full Pipeline
-            is_img_selected = (self.targets_cb.currentText() in ["image", "all"]) or (self.report_mode_cb.currentText() == "image")
+            is_img_selected = (self.targets_cb.currentText() in ["image", "all"]) or (
+                self.report_mode_cb.currentText() == "image"
+            )
 
-        if hasattr(self, 'pos_img_input'):
+        if hasattr(self, "pos_img_input"):
             self.pos_img_input.setEnabled(is_img_selected)
-        if hasattr(self, 'tpl_img_input'):
+        if hasattr(self, "tpl_img_input"):
             self.tpl_img_input.setEnabled(is_img_selected)
 
     def update_path_summary(self):
-        if hasattr(self, 'path_summary_label'):
+        if hasattr(self, "path_summary_label"):
             cfg = get_config_files(self.config_dir)
             self.path_summary_label.setText(
                 f"Data: {self.paths.data_dir.name}  |  Reports: {self.paths.reports_dir.name}  |  Logs: {self.paths.logs_dir.name}  |  State: {self.paths.state_dir.name}"
@@ -553,7 +592,7 @@ class MainWindow(QMainWindow):
             ]
             self.path_summary_label.setToolTip("\n".join(tooltip_lines))
 
-        if hasattr(self, 'env_file_input'):
+        if hasattr(self, "env_file_input"):
             cfg = get_config_files(self.config_dir)
             self.env_file_input.setText(str(cfg.env))
             self.targets_file_input.setText(str(cfg.targets))
@@ -579,12 +618,16 @@ class MainWindow(QMainWindow):
         self.update_path_summary()
 
     def choose_output_root(self):
-        selected = QFileDialog.getExistingDirectory(self, "Select Output Root folder", str(self.output_root))
+        selected = QFileDialog.getExistingDirectory(
+            self, "Select Output Root folder", str(self.output_root)
+        )
         if selected:
             self._set_path("output_root", selected, self.output_root_input)
 
     def choose_config_dir(self):
-        selected = QFileDialog.getExistingDirectory(self, "Select config folder", str(self.config_dir))
+        selected = QFileDialog.getExistingDirectory(
+            self, "Select config folder", str(self.config_dir)
+        )
         if selected:
             self._set_path("config_dir", selected, self.config_dir_input)
 
@@ -619,20 +662,20 @@ class MainWindow(QMainWindow):
     def open_output_root_folder(self):
         try:
             self.output_root.mkdir(parents=True, exist_ok=True)
-            if os.name == 'nt':
+            if os.name == "nt":
                 os.startfile(str(self.output_root))
             else:
-                subprocess.Popen(['xdg-open', str(self.output_root)])
+                subprocess.Popen(["xdg-open", str(self.output_root)])
         except Exception as e:
             self.log_message(f"Could not open output root folder: {e}")
 
     def open_output_folder(self):
         try:
             self.reports_dir.mkdir(parents=True, exist_ok=True)
-            if os.name == 'nt':
+            if os.name == "nt":
                 os.startfile(str(self.reports_dir))
             else:
-                subprocess.Popen(['xdg-open', str(self.reports_dir)])
+                subprocess.Popen(["xdg-open", str(self.reports_dir)])
         except Exception as e:
             self.log_message(f"Could not open output folder: {e}")
 
@@ -704,7 +747,13 @@ class MainWindow(QMainWindow):
             self.pending_resume_state = None
         else:
             mode_val = self.mode_cb.currentText()
-            phase = "scrape_sid" if mode_val in ("Scrape", "Full Pipeline") else ("report_image" if self.report_mode_cb.currentText() == "image" else "report_ocr")
+            phase = (
+                "scrape_sid"
+                if mode_val in ("Scrape", "Full Pipeline")
+                else (
+                    "report_image" if self.report_mode_cb.currentText() == "image" else "report_ocr"
+                )
+            )
 
             dates_for_state = [d_str] if date_mode == "Single Date" else [s_str, e_str]
 
@@ -729,7 +778,7 @@ class MainWindow(QMainWindow):
                 "completed_items_count": 0,
                 "last_completed": None,
                 "next_item": None,
-                "completed_items": []
+                "completed_items": [],
             }
             state["resume_mode"] = False
             save_resume_state(state)
@@ -752,7 +801,7 @@ class MainWindow(QMainWindow):
             output_dir=self.output_root,
             data_dir=self.data_dir,
             config_dir=self.config_dir,
-            reports_dir=self.reports_dir
+            reports_dir=self.reports_dir,
         )
         self.worker.moveToThread(self.worker_thread)
 
@@ -810,11 +859,13 @@ class MainWindow(QMainWindow):
             self.worker_thread = None
         event.accept()
 
+
 def main():
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

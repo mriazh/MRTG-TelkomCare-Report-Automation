@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from selenium.common.exceptions import WebDriverException
+
 from mrtg_automation.scraper.session import (
     SessionManager,
     _clear_stale_chrome_wdm_locks,
@@ -47,8 +49,10 @@ class TestStaleChromeWdmLockRecovery(unittest.TestCase):
             now = 1000.0
             os.utime(stale_lock, (now - 90, now - 90))
 
-            with patch("pathlib.Path.cwd", return_value=Path(tmp_dir)), \
-                 patch.dict(os.environ, {"WDM_LOCAL": "true"}):
+            with (
+                patch("pathlib.Path.cwd", return_value=Path(tmp_dir)),
+                patch.dict(os.environ, {"WDM_LOCAL": "true"}),
+            ):
                 removed = _clear_stale_chrome_wdm_locks(
                     max_age_seconds=60.0,
                     time_func=lambda: now,
@@ -74,10 +78,14 @@ class TestStaleChromeWdmLockRecovery(unittest.TestCase):
 
         sm = SessionManager(config=mock_config)
 
-        with patch("mrtg_automation.scraper.session._clear_stale_chrome_wdm_locks", side_effect=fake_cleanup) as mock_cleanup, \
-             patch("mrtg_automation.scraper.session.ChromeDriverManager") as mock_cdm, \
-             patch("selenium.webdriver.Chrome"):
-
+        with (
+            patch(
+                "mrtg_automation.scraper.session._clear_stale_chrome_wdm_locks",
+                side_effect=fake_cleanup,
+            ) as mock_cleanup,
+            patch("mrtg_automation.scraper.session.ChromeDriverManager") as mock_cdm,
+            patch("selenium.webdriver.Chrome"),
+        ):
             mock_cdm_instance = MagicMock()
             mock_cdm_instance.install.side_effect = fake_install
             mock_cdm.return_value = mock_cdm_instance
@@ -89,6 +97,20 @@ class TestStaleChromeWdmLockRecovery(unittest.TestCase):
             mock_cleanup.assert_called_once()
             mock_cdm_instance.install.assert_called_once()
 
+    def test_start_returns_false_for_driver_error_without_leaking_details(self):
+        mock_config = MagicMock()
+        mock_config.effective_browser_type = "chrome"
+        mock_config.browser_type = "chrome"
+        mock_config.browser_binary = None
+        sm = SessionManager(config=mock_config)
+
+        with patch(
+            "mrtg_automation.scraper.session.ChromeDriverManager",
+            side_effect=WebDriverException("private driver path and token"),
+        ):
+            self.assertFalse(sm.start())
+            self.assertIsNone(sm.driver)
+
 
 class TestSessionPersistenceVerification(unittest.TestCase):
     def test_restore_persisted_session_false_when_cookies_loaded_but_not_logged_in(self):
@@ -98,8 +120,10 @@ class TestSessionPersistenceVerification(unittest.TestCase):
         sm.driver = MagicMock()
         sm.driver.current_url = "https://telkomcare.telkom.co.id/public/login"
 
-        with patch.object(sm, "load_cookies", return_value=True), \
-             patch.object(sm, "is_logged_in", return_value=False):
+        with (
+            patch.object(sm, "load_cookies", return_value=True),
+            patch.object(sm, "is_logged_in", return_value=False),
+        ):
             result = sm.restore_persisted_session()
             self.assertFalse(result)
             sm.driver.get.assert_called_with(sm.base_url)
@@ -111,8 +135,10 @@ class TestSessionPersistenceVerification(unittest.TestCase):
         sm.driver = MagicMock()
         sm.driver.current_url = "https://telkomcare.telkom.co.id/mrtgnetcare2"
 
-        with patch.object(sm, "load_cookies", return_value=True), \
-             patch.object(sm, "is_logged_in", return_value=True):
+        with (
+            patch.object(sm, "load_cookies", return_value=True),
+            patch.object(sm, "is_logged_in", return_value=True),
+        ):
             result = sm.restore_persisted_session()
             self.assertTrue(result)
 
@@ -172,9 +198,11 @@ class TestCookiePersistenceHarden(unittest.TestCase):
                 }
             ]
 
-            with patch("json.load", return_value=cookie_data), \
-                 patch("builtins.open", unittest.mock.mock_open(read_data="[]")), \
-                 patch("pathlib.Path.exists", return_value=True):
+            with (
+                patch("json.load", return_value=cookie_data),
+                patch("builtins.open", unittest.mock.mock_open(read_data="[]")),
+                patch("pathlib.Path.exists", return_value=True),
+            ):
                 res = sm.load_cookies()
 
             self.assertTrue(res)
@@ -265,7 +293,9 @@ class TestSessionManagerCleanup(unittest.TestCase):
         self.assertTrue(sm.is_logged_in())
 
         mock_driver.current_url = "https://example.com/other"
-        type(mock_driver).page_source = PropertyMock(side_effect=WebDriverException("Page source error"))
+        type(mock_driver).page_source = PropertyMock(
+            side_effect=WebDriverException("Page source error")
+        )
         self.assertFalse(sm.is_logged_in())
 
 

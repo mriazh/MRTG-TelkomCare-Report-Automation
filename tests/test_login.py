@@ -17,6 +17,7 @@ After successful test:
   - Profile at C:/Users/adima/.mrtg-scraper-profile contains cookies
   - Next test_login.py run should detect existing session and skip manual login
 """
+
 import sys
 import time
 
@@ -32,43 +33,44 @@ def main():
     print("2. Check if session is valid")
     print("3. If not, switch to non-headless + prompt for manual login")
     print("=" * 70)
-    
+
     # First try headless=True (assumes session already established from prior run)
     # If that fails, the login() method will switch to non-headless automatically
     scraper = TelkomCareScraper(headless=True)
-    
+
     try:
         print("\nAttempting login...")
         start = time.time()
         success = scraper.login()
         elapsed = time.time() - start
-        
+
         if success:
             print(f"\n[OK] LOGIN SUCCESS in {elapsed:.1f}s")
             print(f"     Current URL: {scraper.session.driver.current_url}")
             print(f"     Profile dir: {scraper.session.profile_dir}")
-            
+
             # Optional: take a screenshot of dashboard for verification
             try:
-                screenshot_path = scraper.session.profile_dir / 'dashboard_verification.png'
+                screenshot_path = scraper.session.profile_dir / "dashboard_verification.png"
                 scraper.session.driver.save_screenshot(str(screenshot_path))
                 print(f"     Screenshot saved: {screenshot_path}")
             except Exception as e:
                 print(f"     (Screenshot failed: {e})")
-            
+
             print("\nTest #2: Re-opening session to verify cookies persist...")
             scraper.close()
             time.sleep(2)
-            
+
             # Re-open and check if logged in automatically
             scraper2 = TelkomCareScraper(headless=True)
             scraper2.session.start()
             if scraper2.session.restore_persisted_session():
                 print("[OK] Session persisted! Cookies work for next run.")
             else:
-                print("[WARN] Session did NOT persist. May need to keep browser open during scraper run, or check profile.")
+                print(
+                    "[WARN] Session did NOT persist. May need to keep browser open during scraper run, or check profile."
+                )
 
-            
             scraper2.close()
         else:
             print("\n[FAIL] LOGIN FAILED")
@@ -81,18 +83,20 @@ def main():
     except Exception as e:
         print(f"\n[FATAL] {e}")
         import traceback
+
         traceback.print_exc()
         return 1
     finally:
         try:
             scraper.close()
-        except:
+        except Exception:
             pass
-    
+
     print("\n" + "=" * 70)
     print("TEST COMPLETE")
     print("=" * 70)
     return 0
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())

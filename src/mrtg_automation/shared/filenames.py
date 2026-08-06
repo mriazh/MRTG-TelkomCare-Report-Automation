@@ -15,16 +15,20 @@ def sanitize_target_id(target_id: str) -> str:
     # Windows invalid characters: \ / * ? " < > | :
     return re.sub(r'[\\/*?:"<>|]', "_", target_id).strip()
 
+
 def build_canonical_filename(target_id: str, date_obj: Union[datetime, date]) -> str:
     """
-    Build canonical format unified for both SID and Graph Title: 
+    Build canonical format unified for both SID and Graph Title:
     MRTG_<TARGET_ID>_<YYYYMMDD>.png
     """
     safe_id = sanitize_target_id(target_id)
     date_str = date_obj.strftime("%Y%m%d")
     return f"MRTG_{safe_id}_{date_str}.png"
 
-def get_screenshot_path(target_id: str, date_obj: Union[datetime, date], data_dir: Path = None) -> Path:
+
+def get_screenshot_path(
+    target_id: str, date_obj: Union[datetime, date], data_dir: Path = None
+) -> Path:
     """
     Return full Path object to the canonical screenshot target file.
     """

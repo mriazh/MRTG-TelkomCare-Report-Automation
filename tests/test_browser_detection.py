@@ -1,6 +1,7 @@
 """
 Unit tests for browser auto-detection and GUI browser configuration.
 """
+
 import os
 import unittest
 from unittest.mock import patch
@@ -16,7 +17,6 @@ from mrtg_automation.shared.browser_detection import (
 
 
 class TestBrowserDetection(unittest.TestCase):
-
     def test_find_browser_binary_invalid(self):
         self.assertIsNone(find_browser_binary("invalid_browser_name"))
 
@@ -82,15 +82,16 @@ class TestBrowserDetection(unittest.TestCase):
 
 
 class TestGUIBrowserSelection(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         from PySide6.QtWidgets import QApplication
+
         cls.app = QApplication.instance() or QApplication([])
 
     def test_gui_browser_combo(self):
         from mrtg_automation.gui.app import MainWindow
+
         window = MainWindow()
 
         # Verify dropdown lists installed status and disables uninstalled items

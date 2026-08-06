@@ -3,21 +3,26 @@ Browser auto-detection helper module for MRTG TelkomCare Automation.
 
 Detects installed browsers (Chrome, Edge, Firefox, Chromium) across Windows, Linux, and macOS.
 """
+
 import logging
 import os
-import platform
 import shutil
 import sys
-from pathlib import Path
 
-logger = logging.getLogger('mrtg_automation.shared.browser_detection')
+logger = logging.getLogger("mrtg_automation.shared.browser_detection")
 
 SUPPORTED_BROWSERS = ["chrome", "edge", "firefox", "chromium"]
 PREFERENCE_ORDER = ["chrome", "edge", "firefox", "chromium"]
 
 # Binary names for shutil.which
 BINARY_NAMES = {
-    "chrome": ["chrome", "google-chrome", "google-chrome-stable", "chrome.exe", "google-chrome.exe"],
+    "chrome": [
+        "chrome",
+        "google-chrome",
+        "google-chrome-stable",
+        "chrome.exe",
+        "google-chrome.exe",
+    ],
     "edge": ["msedge", "microsoft-edge", "microsoft-edge-stable", "msedge.exe"],
     "firefox": ["firefox", "firefox.exe"],
     "chromium": ["chromium", "chromium-browser", "chromium.exe"],
@@ -71,8 +76,14 @@ def _check_windows_registry(app_name: str) -> str | None:
         return None
 
     keys = [
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\\" + app_name),
-        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\\" + app_name),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\\" + app_name,
+        ),
+        (
+            winreg.HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\\" + app_name,
+        ),
     ]
     for root_key, subkey in keys:
         try:
@@ -105,7 +116,9 @@ def find_browser_binary(browser_type: str) -> str | None:
             return which_path
 
     # 2. Check platform standard paths
-    plat = "win32" if sys.platform == "win32" else ("darwin" if sys.platform == "darwin" else "linux")
+    plat = (
+        "win32" if sys.platform == "win32" else ("darwin" if sys.platform == "darwin" else "linux")
+    )
     paths = STANDARD_PATHS.get(plat, {}).get(browser_type, [])
     for p in paths:
         expanded = os.path.expandvars(p)

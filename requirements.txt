@@ -4,3 +4,5 @@ openpyxl
 selenium
 webdriver-manager
 Pillow
+pyotp>=2.9
+pydantic>=2.7,<3

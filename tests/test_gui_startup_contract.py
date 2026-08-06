@@ -23,7 +23,9 @@ class TestGuiStartupContract(unittest.TestCase):
         method_body = content[method_start:method_end]
 
         self.assertIn("self.reports_dir.mkdir(parents=True, exist_ok=True)", method_body)
-        self.assertLess(method_body.index("self.reports_dir.mkdir"), method_body.index("os.startfile"))
+        self.assertLess(
+            method_body.index("self.reports_dir.mkdir"), method_body.index("os.startfile")
+        )
 
     def test_configuration_rows_put_output_after_config(self):
         content = GUI_APP.read_text(encoding="utf-8")

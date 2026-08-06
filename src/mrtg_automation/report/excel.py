@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -9,6 +10,7 @@ from openpyxl.utils import get_column_letter
 from ..shared.filenames import build_canonical_filename, is_image_file_valid
 from .images import insert_image_to_area
 from .mapping import parse_image_only_mapping, parse_ocr_mapping, parse_target_list
+from .ocr import OCRExtractor
 
 
 logger = logging.getLogger(__name__)
@@ -22,28 +24,23 @@ OCR_KEYS = (
     "Outbound_Maximum",
 )
 
+
 def _is_valid_ocr_value(value):
-    return (
-        isinstance(value, str)
-        and bool(value.strip())
-        and value.strip().lower() != "n/a"
-    )
+    return isinstance(value, str) and bool(value.strip()) and value.strip().lower() != "n/a"
+
 
 def _classify_ocr_values(values):
     if not isinstance(values, dict):
         return "fail", 0, 6
 
-    valid_count = sum(
-        1
-        for key in OCR_KEYS
-        if _is_valid_ocr_value(values.get(key))
-    )
+    valid_count = sum(1 for key in OCR_KEYS if _is_valid_ocr_value(values.get(key)))
 
     if valid_count == 6:
         return "ok", 6, 0
     if valid_count:
         return "partial", valid_count, 6 - valid_count
     return "fail", 0, 6
+
 
 def _record_ocr_metadata(summary, metadata):
     engine = metadata.get("engine_used")
@@ -65,6 +62,7 @@ def _record_ocr_metadata(summary, metadata):
     if counter_key:
         summary[counter_key] += 1
 
+
 def _prepare_audit_path(output_path, report_mode, resume_mode):
     if report_mode != "OCR_IMAGE":
         return None
@@ -73,6 +71,7 @@ def _prepare_audit_path(output_path, report_mode, resume_mode):
     if not resume_mode:
         audit_path.write_text("", encoding="utf-8")
     return audit_path
+
 
 class ExcelReportGenerator:
     def __init__(self, config):
@@ -91,7 +90,22 @@ class ExcelReportGenerator:
         folders.sort()
         return folders
 
-    def generate(self, report_mode: str, data_dir: Path, template_path: Path, output_path: Path, mapping_file: Path, list_file: Path, date_filter: str = None, progress_callback=None, cancel_event=None, pause_event=None, resume_state=None, resume_mode: bool = False, phase: str = None):
+    def generate(
+        self,
+        report_mode: str,
+        data_dir: Path,
+        template_path: Path,
+        output_path: Path,
+        mapping_file: Path,
+        list_file: Path,
+        date_filter: str | None = None,
+        progress_callback=None,
+        cancel_event=None,
+        pause_event=None,
+        resume_state=None,
+        resume_mode: bool = False,
+        phase: str | None = None,
+    ):
         """
         Main orchestration logic for report generation.
         """
@@ -117,10 +131,11 @@ class ExcelReportGenerator:
             "ocr_both_unknown": 0,
             "ocr_mismatch": 0,
             "review_list": [],
-            "output_file": str(output_path)
+            "unresolved_items": [],
+            "output_file": str(output_path),
         }
 
-        if report_mode not in ('IMAGE_ONLY', 'OCR_IMAGE'):
+        if report_mode not in ("IMAGE_ONLY", "OCR_IMAGE"):
             logger.error(f"Mode {report_mode} is not yet implemented.")
             return summary
 
@@ -141,9 +156,9 @@ class ExcelReportGenerator:
             return summary
 
         # Load mapping based on mode
-        if report_mode == 'IMAGE_ONLY':
+        if report_mode == "IMAGE_ONLY":
             mapping = parse_image_only_mapping(mapping_file)
-        elif report_mode == 'OCR_IMAGE':
+        elif report_mode == "OCR_IMAGE":
             mapping = parse_ocr_mapping(mapping_file)
 
         audit_path = _prepare_audit_path(output_path, report_mode, resume_mode)
@@ -187,12 +202,8 @@ class ExcelReportGenerator:
             logger.info(f"Loading template: {template_path.name}")
             wb = load_workbook(template_path)
 
-        # Lazy load OCRExtractor
-        OCRExtractor = None
-        if report_mode == 'OCR_IMAGE':
+        if report_mode == "OCR_IMAGE" and OCRExtractor is not None:
             try:
-                from .ocr import OCRExtractor
-                # Warm up the engine to catch failures early
                 OCRExtractor._get_engine()
             except ImportError as e:
                 logger.error(str(e))
@@ -213,16 +224,21 @@ class ExcelReportGenerator:
             mark_item_completed,
             save_resume_state,
         )
+
         if resume_state is not None:
             resume_state["status"] = "running"
             resume_state["current_phase"] = phase
             resume_state["phase_total_items"] = total_items
-            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(
+                resume_state, phase
+            )
             if not resume_state.get("total_items"):
                 resume_state["total_items"] = total_items
             save_resume_state(resume_state)
 
-        completed_keys = get_completed_item_keys(resume_state) if resume_state and resume_mode else set()
+        completed_keys = (
+            get_completed_item_keys(resume_state) if resume_state and resume_mode else set()
+        )
 
         def find_completed_item(key):
             if not resume_state:
@@ -241,7 +257,9 @@ class ExcelReportGenerator:
             if sheet_name not in wb.sheetnames:
                 sheet_name = str(hari)
                 if sheet_name not in wb.sheetnames:
-                    logger.warning(f"Sheet {hari:02d} not found in template. Skipping date {tanggal_str}.")
+                    logger.warning(
+                        f"Sheet {hari:02d} not found in template. Skipping date {tanggal_str}."
+                    )
                     continue
 
             sheet = wb[sheet_name]
@@ -263,7 +281,7 @@ class ExcelReportGenerator:
                         "mode": report_mode,
                         "date": tanggal_str,
                         "target": target_id,
-                        "key": key
+                        "key": key,
                     }
                     save_resume_state(resume_state)
 
@@ -289,11 +307,19 @@ class ExcelReportGenerator:
                     completed_item = find_completed_item(key)
                     # Physical file validation: check if the screenshot file exists and is valid
                     screenshot_path = data_dir / tanggal_str / f"{target_id}.png"
-                    if completed_item and completed_item.get("status", "ok") != "error" and not is_image_file_valid(screenshot_path):
-                        print(f"State says OK but screenshot missing/invalid, re-processing OCR: {target_id}")
+                    if (
+                        completed_item
+                        and completed_item.get("status", "ok") != "error"
+                        and not is_image_file_valid(screenshot_path)
+                    ):
+                        print(
+                            f"State says OK but screenshot missing/invalid, re-processing OCR: {target_id}"
+                        )
                         # Fall through; re-process OCR
                     else:
-                        print(f"[SKIP] report {current_index + 1}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} already completed")
+                        print(
+                            f"[SKIP] report {current_index + 1}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} already completed"
+                        )
                         current_index += 1
                         continue
 
@@ -313,20 +339,32 @@ class ExcelReportGenerator:
                     logger.warning(msg)
                     summary["missing_mappings"] += 1
                     if resume_state is not None:
-                        item = {"phase": phase, "mode": report_mode, "date": tanggal_str, "target": target_id, "status": "missing_mapping", "error": None, "key": key}
+                        item = {
+                            "phase": phase,
+                            "mode": report_mode,
+                            "date": tanggal_str,
+                            "target": target_id,
+                            "status": "missing_mapping",
+                            "error": None,
+                            "key": key,
+                        }
                         mark_item_completed(resume_state, item)
-                        resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                        resume_state["phase_completed_items_count"] = (
+                            count_completed_items_for_phase(resume_state, phase)
+                        )
                         save_resume_state(resume_state)
                         completed_keys.add(key)
                     continue
 
-                if report_mode == 'IMAGE_ONLY':
-                    (start_row, start_col), (end_row, end_col) = mapping[target_id]
+                if report_mode == "IMAGE_ONLY":
+                    image_range = mapping[target_id]
                 else:
-                    if 'Image' in mapping[target_id]:
-                        (start_row, start_col), (end_row, end_col) = mapping[target_id]['Image']
-                    else:
-                        start_row, start_col, end_row, end_col = None, None, None, None
+                    image_range = mapping[target_id].get("Image")
+
+                if image_range is not None:
+                    (start_row, start_col), (end_row, end_col) = image_range
+                else:
+                    start_row, start_col, end_row, end_col = None, None, None, None
 
                 # Strict requirement: only use canonical format
                 filename = build_canonical_filename(target_id, date_obj)
@@ -337,31 +375,95 @@ class ExcelReportGenerator:
                     print(msg)
                     logger.warning(msg)
                     summary["missing_screenshots"] += 1
+                    summary["unresolved_items"].append(
+                        {
+                            "date": tanggal_str,
+                            "target_id": target_id,
+                            "mode": report_mode,
+                            "status": "FAIL",
+                            "error": "missing_screenshot",
+                        }
+                    )
                     if resume_state is not None:
-                        item = {"phase": phase, "mode": report_mode, "date": tanggal_str, "target": target_id, "status": "missing_screenshot", "error": None, "key": key}
+                        item = {
+                            "phase": phase,
+                            "mode": report_mode,
+                            "date": tanggal_str,
+                            "target": target_id,
+                            "status": "missing_screenshot",
+                            "error": None,
+                            "key": key,
+                        }
                         mark_item_completed(resume_state, item)
-                        resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                        resume_state["phase_completed_items_count"] = (
+                            count_completed_items_for_phase(resume_state, phase)
+                        )
                         save_resume_state(resume_state)
                         completed_keys.add(key)
                     continue
 
                 # Try OCR if applicable
-                if report_mode == 'OCR_IMAGE':
-                    print(f"  [{int(nomor):02d}/{len(items)}] {tipe} {target_id} ... ", end="", flush=True)
+                if report_mode == "OCR_IMAGE":
+                    print(
+                        f"  [{int(nomor):02d}/{len(items)}] {tipe} {target_id} ... ",
+                        end="",
+                        flush=True,
+                    )
 
-                    # 1. & 2. Extract and handle exceptions
-                    try:
-                        metadata = OCRExtractor.extract_mrtg_values_with_metadata(path_gambar, self.config)
-                    except Exception as e:
-                        logger.error(f"OCR Extractor exception: {e}")
-                        metadata = {
-                            "values": None, "engine_used": "Error", "decision_reason": "both_unknown",
-                            "paddle_confidence": 0.0, "paddle_values": {}, "gemini_values": {},
-                            "gemini_model": "", "paddle_complete": False, "gemini_complete": False,
-                            "gemini_called": False,
-                        }
+                    metadata: dict[str, Any] = {}
+                    retry_limit = max(1, int(getattr(self.config, "ocr_max_retries", 3)))
+                    for _attempt in range(retry_limit):
+                        try:
+                            candidate = OCRExtractor.extract_mrtg_values_with_metadata(
+                                path_gambar,
+                                max_retries=1,
+                            )
+                        except Exception:
+                            logger.error("OCR Extractor exception", exc_info=True)
+                            candidate = {
+                                "values": {},
+                                "engine_used": "Error",
+                                "decision_reason": "both_unknown",
+                                "paddle_confidence": 0.0,
+                                "paddle_values": {},
+                                "gemini_values": {},
+                                "gemini_model": "",
+                                "paddle_complete": False,
+                                "gemini_complete": False,
+                                "gemini_called": False,
+                                "attempted_models": [],
+                                "model_failures": {},
+                                "attempts": 0,
+                                "gemini_error_reason": "OCR_EXCEPTION",
+                            }
+                        metadata = (
+                            candidate
+                            if isinstance(candidate, dict)
+                            else {
+                                "values": {},
+                                "engine_used": "Error",
+                                "decision_reason": "both_unknown",
+                                "paddle_confidence": 0.0,
+                                "paddle_values": {},
+                                "gemini_values": {},
+                                "gemini_model": "",
+                                "paddle_complete": False,
+                                "gemini_complete": False,
+                                "gemini_called": False,
+                                "attempted_models": [],
+                                "model_failures": {},
+                                "attempts": 0,
+                                "gemini_error_reason": "OCR_INVALID_RESULT",
+                            }
+                        )
+                        candidate_values = metadata.get("values")
+                        candidate_values = (
+                            candidate_values if isinstance(candidate_values, dict) else {}
+                        )
+                        candidate_status, _, _ = _classify_ocr_values(candidate_values)
+                        if candidate_status == "ok":
+                            break
 
-                    # 3. & 4. Record and classify
                     _record_ocr_metadata(summary, metadata)
                     ocr_vals = metadata.get("values")
                     ocr_vals = ocr_vals if isinstance(ocr_vals, dict) else {}
@@ -372,7 +474,9 @@ class ExcelReportGenerator:
                         if metadata.get("gemini_called")
                         else "skipped"
                     )
-                    print(f"engine={metadata['engine_used']} conf={metadata['paddle_confidence']:.2f} reason={metadata['decision_reason']} gemini={gemini_display}")
+                    print(
+                        f"engine={metadata['engine_used']} conf={metadata['paddle_confidence']:.2f} reason={metadata['decision_reason']} gemini={gemini_display}"
+                    )
 
                     # 5. Set status/counters
                     if status == "ok":
@@ -388,7 +492,15 @@ class ExcelReportGenerator:
                         item_error = None
                         ocr_status_for_state = "ocr_partial"
                         item_suffix = f" ocr_status=partial na_count={na_cnt}"
-                        summary["review_list"].append({"target_id": target_id, "date": tanggal_str, "sheet": sheet_name, "status": "Partial", "na_count": na_cnt})
+                        summary["review_list"].append(
+                            {
+                                "target_id": target_id,
+                                "date": tanggal_str,
+                                "sheet": sheet_name,
+                                "status": "Partial",
+                                "na_count": na_cnt,
+                            }
+                        )
                         print(f"PARTIAL ({valid_cnt}/6)")
                     else:
                         summary["ocr_fail"] += 1
@@ -396,7 +508,15 @@ class ExcelReportGenerator:
                         item_error = "ocr_failed"
                         ocr_status_for_state = "ocr_failed"
                         item_suffix = ""
-                        summary["review_list"].append({"target_id": target_id, "date": tanggal_str, "sheet": sheet_name, "status": "Fail", "na_count": 6})
+                        summary["review_list"].append(
+                            {
+                                "target_id": target_id,
+                                "date": tanggal_str,
+                                "sheet": sheet_name,
+                                "status": "Fail",
+                                "na_count": 6,
+                            }
+                        )
                         print("FAIL")
 
                     # 6. Fill mapping
@@ -412,25 +532,39 @@ class ExcelReportGenerator:
 
                     # 7. Audit JSONL
                     import json
+
                     log_entry = {
-                        "date": tanggal_str, "target_id": target_id, "image_path": str(path_gambar),
-                        "engine_used": metadata['engine_used'], "decision_reason": metadata['decision_reason'],
-                        "paddle_confidence": metadata['paddle_confidence'], "paddle_complete": metadata['paddle_complete'],
-                        "gemini_complete": metadata['gemini_complete'], "gemini_model": metadata['gemini_model'],
-                        "final_values": ocr_vals, "gemini_called": metadata.get("gemini_called", False),
-                        "status": status, "valid_count": valid_cnt, "missing_count": na_cnt,
-                        "paddle_values": metadata.get("paddle_values", {}), "gemini_values": metadata.get("gemini_values", {})
+                        "date": tanggal_str,
+                        "target_id": target_id,
+                        "image_path": str(path_gambar),
+                        "engine_used": metadata["engine_used"],
+                        "decision_reason": metadata["decision_reason"],
+                        "paddle_confidence": metadata["paddle_confidence"],
+                        "paddle_complete": metadata["paddle_complete"],
+                        "gemini_complete": metadata["gemini_complete"],
+                        "gemini_model": metadata["gemini_model"],
+                        "final_values": ocr_vals,
+                        "gemini_called": metadata.get("gemini_called", False),
+                        "status": status,
+                        "valid_count": valid_cnt,
+                        "missing_count": na_cnt,
+                        "paddle_values": metadata.get("paddle_values", {}),
+                        "gemini_values": metadata.get("gemini_values", {}),
                     }
                     if audit_path:
                         with open(audit_path, "a", encoding="utf-8") as f:
                             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
                 # Insert the image
-                insert_img_flag = os.environ.get('INSERT_IMAGES', 'True').lower() == 'true'
+                insert_img_flag = os.environ.get("INSERT_IMAGES", "True").lower() == "true"
                 if start_row is not None and insert_img_flag:
-                    success = insert_image_to_area(sheet, path_gambar, start_row, start_col, end_row, end_col)
+                    success = insert_image_to_area(
+                        sheet, path_gambar, start_row, start_col, end_row, end_col
+                    )
                     if success:
-                        logger.info(f"  Inserted {path_gambar.name} into {get_column_letter(start_col)}{start_row}")
+                        logger.info(
+                            f"  Inserted {path_gambar.name} into {get_column_letter(start_col)}{start_row}"
+                        )
                         summary["image_inserted"] += 1
                     else:
                         summary["failed_inserts"] += 1
@@ -445,6 +579,29 @@ class ExcelReportGenerator:
                     msg = f"[FAIL] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id} error={item_error}{item_suffix}"
                     print(msg)
                     logger.error(msg)
+                    summary["unresolved_items"].append(
+                        {
+                            "date": tanggal_str,
+                            "target_id": target_id,
+                            "mode": report_mode,
+                            "status": item_status,
+                            "error": item_error or "",
+                            "item": target_id,
+                            "attempted_models": metadata.get("attempted_models", [])
+                            if report_mode == "OCR_IMAGE"
+                            else [],
+                            "model_failures": metadata.get("model_failures", {})
+                            if report_mode == "OCR_IMAGE"
+                            else {},
+                            "retry_count": metadata.get("attempts", 0)
+                            if report_mode == "OCR_IMAGE"
+                            else 0,
+                            "reason": metadata.get("gemini_error_reason")
+                            or metadata.get("decision_reason", item_error or "error")
+                            if report_mode == "OCR_IMAGE"
+                            else item_error or "error",
+                        }
+                    )
                 elif report_mode == "OCR_IMAGE" and ocr_status_for_state:
                     status_for_state = ocr_status_for_state
                     msg = f"[OK] report {current_index}/{total_items} mode={report_mode} date={tanggal_str} target={target_id}{item_suffix}"
@@ -464,10 +621,12 @@ class ExcelReportGenerator:
                         "target": target_id,
                         "status": status_for_state,
                         "error": item_error,
-                        "key": key
+                        "key": key,
                     }
                     mark_item_completed(resume_state, item)
-                    resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                    resume_state["phase_completed_items_count"] = count_completed_items_for_phase(
+                        resume_state, phase
+                    )
                     save_resume_state(resume_state)
                     completed_keys.add(key)
 
@@ -481,7 +640,9 @@ class ExcelReportGenerator:
         if resume_state is not None:
             resume_state["current_phase"] = phase
             resume_state["next_item"] = None
-            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(
+                resume_state, phase
+            )
             save_resume_state(resume_state)
 
         return summary
@@ -492,14 +653,20 @@ class ExcelReportGenerator:
         lines = []
         lines.append("")
         lines.append("=" * 70)
-        lines.append(f"  OCR Summary: OK={summary['ocr_ok']} | Partial={summary['ocr_partial']} | Fail={summary['ocr_fail']}")
-        lines.append(f"  Image inserted: {summary['image_inserted']} | Missing: {summary['missing_screenshots']}")
+        lines.append(
+            f"  OCR Summary: OK={summary['ocr_ok']} | Partial={summary['ocr_partial']} | Fail={summary['ocr_fail']}"
+        )
+        lines.append(
+            f"  Image inserted: {summary['image_inserted']} | Missing: {summary['missing_screenshots']}"
+        )
         lines.append(f"  Date filter: {summary.get('date_filter', 'N/A')}")
-        if summary.get('review_list'):
+        if summary.get("review_list"):
             lines.append("")
             lines.append(f"  Review list ({len(summary['review_list'])} items):")
-            for r in summary['review_list']:
-                status_icon = {"Fail": "[FAIL]", "Partial": "[WARN]"}.get(r['status'], "      ")
-                lines.append(f"    {status_icon} [{r['status']:7s}] {r['target_id']:25s} @ {r['date']} sheet={r['sheet']} (N/A: {r['na_count']})")
+            for r in summary["review_list"]:
+                status_icon = {"Fail": "[FAIL]", "Partial": "[WARN]"}.get(r["status"], "      ")
+                lines.append(
+                    f"    {status_icon} [{r['status']:7s}] {r['target_id']:25s} @ {r['date']} sheet={r['sheet']} (N/A: {r['na_count']})"
+                )
         lines.append("=" * 70)
         return "\n".join(lines)

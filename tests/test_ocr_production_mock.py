@@ -10,7 +10,6 @@ from mrtg_automation.cli import (
     _discover_data_dates,
     _group_dates_by_month,
     _monthly_output_path,
-    run_report_command,
 )
 from mrtg_automation.config import Config
 from mrtg_automation.report.excel import (
@@ -41,6 +40,7 @@ GEMINI_VALUES = {
 
 class LegacyEngine:
     """Legacy PaddleOCR engine that only has .ocr() method (no .predict())."""
+
     def __init__(self, result):
         self.result = result
 
@@ -103,9 +103,7 @@ class TestOCRProduction(unittest.TestCase):
     def test_confident_complete_paddle_skips_gemini(self, mock_get_engine, mock_gemini):
         mock_get_engine.return_value = self._v3_engine(0.99)
 
-        result = OCRExtractor.extract_mrtg_values_with_metadata(
-            self.image_path, self.config
-        )
+        result = OCRExtractor.extract_mrtg_values_with_metadata(self.image_path, self.config)
 
         self.assertEqual(EXPECTED_PADDLE_VALUES, result["values"])
         self.assertEqual("Paddle", result["engine_used"])
@@ -124,9 +122,7 @@ class TestOCRProduction(unittest.TestCase):
         mock_get_engine.return_value = engine
         mock_gemini.return_value.extract_legend.return_value = self._gemini_result()
 
-        result = OCRExtractor.extract_mrtg_values_with_metadata(
-            self.image_path, self.config
-        )
+        result = OCRExtractor.extract_mrtg_values_with_metadata(self.image_path, self.config)
 
         self.assertEqual(GEMINI_VALUES, result["values"])
         self.assertEqual("Gemini", result["engine_used"])
@@ -141,9 +137,7 @@ class TestOCRProduction(unittest.TestCase):
         mock_get_engine.return_value = self._v3_engine(0.5)
         mock_gemini.return_value.extract_legend.return_value = self._gemini_result()
 
-        result = OCRExtractor.extract_mrtg_values_with_metadata(
-            self.image_path, self.config
-        )
+        result = OCRExtractor.extract_mrtg_values_with_metadata(self.image_path, self.config)
 
         self.assertEqual(GEMINI_VALUES, result["values"])
         self.assertEqual("Gemini", result["engine_used"])
@@ -161,9 +155,7 @@ class TestOCRProduction(unittest.TestCase):
             "error_reason": "ALL_MODELS_FAILED",
         }
 
-        result = OCRExtractor.extract_mrtg_values_with_metadata(
-            self.image_path, self.config
-        )
+        result = OCRExtractor.extract_mrtg_values_with_metadata(self.image_path, self.config)
 
         self.assertEqual(EXPECTED_PADDLE_VALUES, result["values"])
         self.assertEqual("Paddle", result["engine_used"])
@@ -179,9 +171,7 @@ class TestOCRProduction(unittest.TestCase):
         legacy_result = [lines]
         mock_get_engine.return_value = LegacyEngine(legacy_result)
 
-        result = OCRExtractor.extract_mrtg_values_with_metadata(
-            self.image_path, self.config
-        )
+        result = OCRExtractor.extract_mrtg_values_with_metadata(self.image_path, self.config)
 
         self.assertEqual(EXPECTED_PADDLE_VALUES, result["values"])
         self.assertEqual("Paddle", result["engine_used"])

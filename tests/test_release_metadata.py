@@ -45,15 +45,13 @@ STALE_EXE_NAME = "MRTG-TelkomCare-Automation.exe"
 # below re-read the real files and assert the snippets appear in them.
 ISS_VERSION_DEFINE = f'#define MyAppVersion "{EXPECTED_VERSION}"'
 ISS_EXE_NAME_DEFINE = f'#define MyAppExeName "{EXPECTED_EXE_NAME}"'
-ISS_OUTPUT_BASE_FILENAME = (
-    f"OutputBaseFilename={EXPECTED_SETUP_ASSET_PREFIX}-v{{#MyAppVersion}}"
-)
+ISS_OUTPUT_BASE_FILENAME = f"OutputBaseFilename={EXPECTED_SETUP_ASSET_PREFIX}-v{{#MyAppVersion}}"
 PS1_PORTABLE_EXE_PATH = f'$ExePath = Join-Path $DistDir "{EXPECTED_EXE_NAME}"'
 PS1_PORTABLE_ZIP_NAME = f'$ZipName = "{EXPECTED_EXE_STEM}-v$AppVersion-portable.zip"'
-PS1_INSTALLER_EXE_PATH = (
-    r'$ExePath = Join-Path $RootDir "dist\MRTG-TelkomCare\MRTG-TelkomCare.exe"'
+PS1_INSTALLER_EXE_PATH = r'$ExePath = Join-Path $RootDir "dist\MRTG-TelkomCare\MRTG-TelkomCare.exe"'
+PS1_ISCC_INVOCATION = (
+    '& $ISCC "/DMyAppVersion=$AppVersion" "/DSourceDir=$StagingRelativePath" $IssPath'
 )
-PS1_ISCC_INVOCATION = '& $ISCC "/DMyAppVersion=$AppVersion" "/DSourceDir=$StagingRelativePath" $IssPath'
 PS1_RELEASE_REPORT = r"release\MRTG-TelkomCare-Setup-v$AppVersion.exe"
 
 # --- Naming regexes -------------------------------------------------------

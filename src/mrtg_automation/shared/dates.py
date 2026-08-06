@@ -2,7 +2,9 @@ from datetime import date, datetime, timedelta
 from typing import Union
 
 
-def generate_date_range(start_date: Union[datetime, date], end_date: Union[datetime, date]) -> list[date]:
+def generate_date_range(
+    start_date: Union[datetime, date], end_date: Union[datetime, date]
+) -> list[date]:
     """
     Generate a list of date objects between start_date and end_date (inclusive).
     """

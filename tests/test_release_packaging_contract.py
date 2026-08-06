@@ -330,30 +330,31 @@ class TestReleasePackagingContract(unittest.TestCase):
 
     def test_normalizes_backslashes(self):
         """Manifest validation must normalize Windows backslashes to forward slashes."""
-        self.assertEqual(
-            validate_release_manifest(["config\\.env"]), ["config/.env"]
-        )
+        self.assertEqual(validate_release_manifest(["config\\.env"]), ["config/.env"])
         self.assertEqual(
             validate_release_manifest(["_internal\\paddle\\stale.bin"]),
             ["_internal/paddle/stale.bin"],
         )
 
 
-def validate_release_manifest(entries, allowed_files=(
-    "MRTG-TelkomCare.exe",
-    "config/.env.example",
-    "config/list_mrtg_targets.example.csv",
-    "config/list_mrtg_data_position.txt",
-    "config/list_mrtg_data_position_img_only.txt",
-    "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
-    "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
-    "assets/app_icon.ico",
-    "_internal/base_library.zip",
-    "_internal/python312.dll",
-    "_internal/python3.dll",
-    "_internal/paddlex/configs/pipelines/OCR.yaml",
-    "_internal/paddle/libs/mklml.dll",
-)):
+def validate_release_manifest(
+    entries,
+    allowed_files=(
+        "MRTG-TelkomCare.exe",
+        "config/.env.example",
+        "config/list_mrtg_targets.example.csv",
+        "config/list_mrtg_data_position.txt",
+        "config/list_mrtg_data_position_img_only.txt",
+        "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
+        "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
+        "assets/app_icon.ico",
+        "_internal/base_library.zip",
+        "_internal/python312.dll",
+        "_internal/python3.dll",
+        "_internal/paddlex/configs/pipelines/OCR.yaml",
+        "_internal/paddle/libs/mklml.dll",
+    ),
+):
     """Return forbidden or unapproved archive-relative paths."""
     FORBIDDEN_ENTRIES = (
         "config/.env",

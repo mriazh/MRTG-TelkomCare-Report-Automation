@@ -5,6 +5,7 @@ Used by TelkomCare scraper to maintain login session across runs.
 Supports automatic Gemini CAPTCHA solving + TOTP login with manual fallback.
 Subsequent runs reuse cookies for persistence.
 """
+
 import base64
 import json
 import logging
@@ -35,18 +36,16 @@ from webdriver_manager.chrome import ChromeDriverManager, ChromeType
 from webdriver_manager.firefox import GeckoDriverManager
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
-logger = logging.getLogger('mrtg_automation.scraper.session')
+logger = logging.getLogger("mrtg_automation.scraper.session")
 
 # URL patterns for login detection
-LOGIN_URL_PATTERNS = ['/login', '/signin', '/auth']
-DASHBOARD_URL_PATTERNS = ['/mrtg', '/graph', '/monitoring', '/dashboard']
-COOKIE_FILE_NAME = 'cookies.json'
+LOGIN_URL_PATTERNS = ["/login", "/signin", "/auth"]
+DASHBOARD_URL_PATTERNS = ["/mrtg", "/graph", "/monitoring", "/dashboard"]
+COOKIE_FILE_NAME = "cookies.json"
 
 
 def _clear_stale_chrome_wdm_locks(
-    max_age_seconds: float = 60.0,
-    time_func=time.time,
-    wdm_dir: Path | None = None
+    max_age_seconds: float = 60.0, time_func=time.time, wdm_dir: Path | None = None
 ) -> int:
     """Remove stale webdriver-manager lock files specifically for chromedriver."""
     if wdm_dir is None:
@@ -63,13 +62,10 @@ def _clear_stale_chrome_wdm_locks(
             if (now - mtime) >= max_age_seconds:
                 lock_file.unlink(missing_ok=True)
                 removed += 1
-                logger.warning(
-                    f"Removed stale webdriver-manager lock file: {lock_file}"
-                )
+                logger.warning(f"Removed stale webdriver-manager lock file: {lock_file}")
         except (FileNotFoundError, PermissionError, OSError) as e:
             logger.debug(f"Failed to clear lock file {lock_file}: {e}")
     return removed
-
 
 
 class SessionManager:
@@ -80,14 +76,24 @@ class SessionManager:
     Supports automatic Gemini CAPTCHA solving + TOTP login.
     """
 
-    def __init__(self, profile_dir: str | None = None, headless: bool = True, base_url: str = 'https://telkomcare.telkom.co.id', cancel_event=None, config=None):
-        self.profile_dir = Path(profile_dir) if profile_dir else Path.home() / '.mrtg-scraper-profile'
+    def __init__(
+        self,
+        profile_dir: str | None = None,
+        headless: bool = True,
+        base_url: str = "https://telkomcare.telkom.co.id",
+        cancel_event=None,
+        config=None,
+    ):
+        self.profile_dir = (
+            Path(profile_dir) if profile_dir else Path.home() / ".mrtg-scraper-profile"
+        )
         self.headless = headless
         self.base_url = base_url
         self.driver = None
         self.cancel_event = cancel_event
         if config is None:
             from mrtg_automation.config import Config
+
             config = Config()
         self.config = config
 
@@ -95,33 +101,33 @@ class SessionManager:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _build_options(self):
-        browser_type = getattr(self.config, 'effective_browser_type', self.config.browser_type)
+        browser_type = getattr(self.config, "effective_browser_type", self.config.browser_type)
         browser_binary = self.config.browser_binary
 
-        if browser_type == 'firefox':
+        if browser_type == "firefox":
             opts = FirefoxOptions()
             if self.headless:
-                opts.add_argument('--headless')
+                opts.add_argument("--headless")
             if browser_binary:
                 opts.binary_location = browser_binary
             return opts
-        elif browser_type == 'edge':
+        elif browser_type == "edge":
             opts = EdgeOptions()
             if self.headless:
-                opts.add_argument('--headless=new')
+                opts.add_argument("--headless=new")
             if browser_binary:
                 opts.binary_location = browser_binary
-            opts.add_argument('--window-size=1920,1080')
+            opts.add_argument("--window-size=1920,1080")
             return opts
         else:
             opts = ChromeOptions()
             if self.headless:
-                opts.add_argument('--headless=new')
-            opts.add_argument(f'--user-data-dir={self.profile_dir}')
-            opts.add_argument('--no-sandbox')
-            opts.add_argument('--disable-dev-shm-usage')
-            opts.add_argument('--window-size=1920,1080')
-            opts.add_experimental_option('excludeSwitches', ['enable-logging'])
+                opts.add_argument("--headless=new")
+            opts.add_argument(f"--user-data-dir={self.profile_dir}")
+            opts.add_argument("--no-sandbox")
+            opts.add_argument("--disable-dev-shm-usage")
+            opts.add_argument("--window-size=1920,1080")
+            opts.add_experimental_option("excludeSwitches", ["enable-logging"])
             if browser_binary:
                 opts.binary_location = browser_binary
             return opts
@@ -129,7 +135,8 @@ class SessionManager:
     def start(self) -> bool:
         """Launch browser with persistent profile. Idempotent (no-op if already started).
         Supports chrome, chromium, firefox, edge via self.config.browser_type."""
-        if self._is_cancelled(): return False
+        if self._is_cancelled():
+            return False
 
         if self.driver is not None:
             logger.debug("SessionManager.start() called but already running")
@@ -139,28 +146,36 @@ class SessionManager:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
 
         opts = self._build_options()
-        browser_type = getattr(self.config, 'effective_browser_type', self.config.browser_type)
+        browser_type = getattr(self.config, "effective_browser_type", self.config.browser_type)
 
         try:
-            if browser_type == 'firefox':
+            if browser_type == "firefox":
                 service = FirefoxService(GeckoDriverManager().install())
                 self.driver = webdriver.Firefox(service=service, options=opts)
                 logger.info(f"Firefox started with profile: {self.profile_dir}")
-            elif browser_type == 'edge':
+            elif browser_type == "edge":
                 service = EdgeService(EdgeChromiumDriverManager().install())
                 self.driver = webdriver.Edge(service=service, options=opts)
                 logger.info(f"Edge started with profile: {self.profile_dir}")
             else:
                 _clear_stale_chrome_wdm_locks()
-                chrome_type = ChromeType.CHROMIUM if browser_type == 'chromium' else ChromeType.GOOGLE
+                chrome_type = (
+                    ChromeType.CHROMIUM if browser_type == "chromium" else ChromeType.GOOGLE
+                )
                 driver_path = ChromeDriverManager(chrome_type=chrome_type).install()
                 service = ChromeService(driver_path)
                 self.driver = webdriver.Chrome(service=service, options=opts)
-                browser_name = 'Chromium' if browser_type == 'chromium' else 'Chrome'
+                browser_name = "Chromium" if browser_type == "chromium" else "Chrome"
                 logger.info(f"{browser_name} started with profile: {self.profile_dir}")
             return True
         except WebDriverException as e:
-            logger.error(f"Failed to start {browser_type} driver: {e}")
+            logger.error(
+                "Failed to start %s driver: %s. Verify the browser is installed, "
+                "the configured binary path is valid, and webdriver-manager can "
+                "download/use a compatible driver.",
+                browser_type,
+                type(e).__name__,
+            )
             self.driver = None
             return False
 
@@ -191,19 +206,25 @@ class SessionManager:
         path = parsed.path.lower()
 
         # Layer 1: Explicitly reject known public/login routes
-        if path.startswith(('/public/login', '/public/mfa')):
+        if path.startswith(("/public/login", "/public/mfa")):
             return False
 
         # Layer 2: Accept only the authenticated dashboard path
-        if path == '/mrtgnetcare2' or path.startswith(('/mrtgnetcare2/',)):
+        if path == "/mrtgnetcare2" or path.startswith(("/mrtgnetcare2/",)):
             return True
 
         # Layer 3: Page-content fallback (only for non-public URLs)
-        if not path.startswith('/public/'):
+        if not path.startswith("/public/"):
             try:
                 page_source = self.driver.page_source.lower()
-                has_login_form = any(kw in page_source for kw in ['login', 'sign in', 'captcha', 'username', 'password'])
-                has_dashboard = any(kw in page_source for kw in ['welcome', 'logged in', 'dashboard', 'logout', 'sign out'])
+                has_login_form = any(
+                    kw in page_source
+                    for kw in ["login", "sign in", "captcha", "username", "password"]
+                )
+                has_dashboard = any(
+                    kw in page_source
+                    for kw in ["welcome", "logged in", "dashboard", "logout", "sign out"]
+                )
                 if has_dashboard and not has_login_form:
                     return True
             except WebDriverException:
@@ -223,9 +244,9 @@ class SessionManager:
             cookies = self.driver.get_cookies()
             self.profile_dir.mkdir(parents=True, exist_ok=True)
             cookie_path = self.profile_dir / COOKIE_FILE_NAME
-            with open(cookie_path, 'w') as f:
+            with open(cookie_path, "w") as f:
                 json.dump(cookies, f, indent=2)
-            if os.name != 'nt':
+            if os.name != "nt":
                 try:
                     os.chmod(cookie_path, 0o600)
                 except OSError:
@@ -249,7 +270,7 @@ class SessionManager:
             logger.info(f"No cookie file found at {cookie_path}")
             return False
         try:
-            with open(cookie_path, 'r') as f:
+            with open(cookie_path, "r") as f:
                 cookies = json.load(f)
             if not isinstance(cookies, list) or not cookies:
                 logger.info("Cookie file is invalid or empty")
@@ -265,12 +286,12 @@ class SessionManager:
                     continue
                 try:
                     cookie = dict(cookie_item)
-                    cookie.pop('sameSite', None)
-                    cookie.pop('storeId', None)
-                    cookie.pop('hostOnly', None)
-                    cookie.pop('session', None)
-                    if isinstance(cookie.get('expiry'), float):
-                        cookie['expiry'] = int(cookie['expiry'])
+                    cookie.pop("sameSite", None)
+                    cookie.pop("storeId", None)
+                    cookie.pop("hostOnly", None)
+                    cookie.pop("session", None)
+                    if isinstance(cookie.get("expiry"), float):
+                        cookie["expiry"] = int(cookie["expiry"])
                     self.driver.add_cookie(cookie)
                     loaded += 1
                 except (WebDriverException, TypeError, KeyError, ValueError) as e:
@@ -310,41 +331,55 @@ class SessionManager:
         if not self.config.gemini_api_key:
             logger.warning("Gemini API key not configured")
             return ""
-        
+
         import json
-        img_b64 = base64.b64encode(image_bytes).decode('utf-8')
+
+        img_b64 = base64.b64encode(image_bytes).decode("utf-8")
         payload = {
-            "contents": [{
-                "parts": [
-                    {"text": "Solve this text CAPTCHA. It is a 3-character alphanumeric string and may be case-sensitive. Output only the 3-character string; no explanation, markdown, punctuation, or newline."},
-                    {"inline_data": {"mime_type": "image/png", "data": img_b64}}
-                ]
-            }]
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": "Solve this text CAPTCHA. It is a 3-character alphanumeric string and may be case-sensitive. Output only the 3-character string; no explanation, markdown, punctuation, or newline."
+                        },
+                        {"inline_data": {"mime_type": "image/png", "data": img_b64}},
+                    ]
+                }
+            ]
         }
-        data = json.dumps(payload).encode('utf-8')
+        data = json.dumps(payload).encode("utf-8")
         transient_codes = {429, 500, 502, 503, 504}
-        
+
         for model in self.config.gemini_models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.config.gemini_api_key}"
             for attempt in range(2):
                 try:
-                    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+                    req = urllib.request.Request(
+                        url, data=data, headers={"Content-Type": "application/json"}
+                    )
                     with urllib.request.urlopen(req, timeout=self.config.LONG_TIMEOUT) as response:
-                        res_json = json.loads(response.read().decode('utf-8'))
-                        result = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                        res_json = json.loads(response.read().decode("utf-8"))
+                        result = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                         if re.fullmatch(r"[A-Za-z0-9]{3}", result):
                             return result
                         logger.warning(f"Model {model} returned invalid output format")
-                        break # Skip to next model
+                        break  # Skip to next model
                 except urllib.error.HTTPError as e:
                     if e.code in transient_codes and attempt < 1:
                         time.sleep(2)
                         continue
                     logger.warning(f"Model {model} failed with HTTP {e.code}")
-                    break # Skip to next model
-                except (urllib.error.URLError, OSError, ValueError, TypeError, KeyError, IndexError) as e:
+                    break  # Skip to next model
+                except (
+                    urllib.error.URLError,
+                    OSError,
+                    ValueError,
+                    TypeError,
+                    KeyError,
+                    IndexError,
+                ) as e:
                     logger.warning(f"Model {model} failed: {e}")
-                    break # Skip to next model
+                    break  # Skip to next model
         return ""
 
     def _wait_for_mrtg_dashboard_ready(self) -> bool:
@@ -354,10 +389,15 @@ class SessionManager:
         Does not click anything.
         """
         try:
-            WebDriverWait(self.driver, self.config.LONG_TIMEOUT,
-                          ignored_exceptions=[StaleElementReferenceException]).until(
-                lambda d: d.current_url.startswith("https://telkomcare.telkom.co.id/mrtgnetcare2")
-                          and len(d.find_elements(By.XPATH, "//a[@data-id='2']")) > 0
+            WebDriverWait(
+                self.driver,
+                self.config.LONG_TIMEOUT,
+                ignored_exceptions=[StaleElementReferenceException],
+            ).until(
+                lambda d: (
+                    d.current_url.startswith("https://telkomcare.telkom.co.id/mrtgnetcare2")
+                    and len(d.find_elements(By.XPATH, "//a[@data-id='2']")) > 0
+                )
             )
             return True
         except (WebDriverException, OSError):
@@ -434,12 +474,14 @@ class SessionManager:
 
                 # Capture captcha image and solve via Gemini
                 print("[AUTO LOGIN] Reading CAPTCHA with Gemini...")
-                captcha_image = self.driver.find_element(By.CSS_SELECTOR, '#captcha-element img')
+                captcha_image = self.driver.find_element(By.CSS_SELECTOR, "#captcha-element img")
                 png_bytes = captcha_image.screenshot_as_png
                 captcha_text = self._solve_captcha_with_gemini(png_bytes)
                 if not captcha_text:
                     print("[AUTO LOGIN] Gemini did not return a valid CAPTCHA; retrying.")
-                    logger.warning(f"Auto-login attempt {attempt}/3 error: Gemini CAPTCHA solving failed, retrying...")
+                    logger.warning(
+                        f"Auto-login attempt {attempt}/3 error: Gemini CAPTCHA solving failed, retrying..."
+                    )
                     if attempt < 3:
                         time.sleep(2)
                     continue
@@ -462,11 +504,16 @@ class SessionManager:
                 # After submit, wait for OTP fields, logged-in state, or CAPTCHA rejection
                 print("[AUTO LOGIN] Waiting for MFA form...")
                 try:
-                    WebDriverWait(self.driver, self.config.WAIT_TIMEOUT,
-                                  ignored_exceptions=[StaleElementReferenceException]).until(
-                        lambda d: len(d.find_elements(By.CSS_SELECTOR, "input[name='otp[]']")) == 6
-                                  or self.is_logged_in()
-                                  or "/public/login/msg/" in d.current_url
+                    WebDriverWait(
+                        self.driver,
+                        self.config.WAIT_TIMEOUT,
+                        ignored_exceptions=[StaleElementReferenceException],
+                    ).until(
+                        lambda d: (
+                            len(d.find_elements(By.CSS_SELECTOR, "input[name='otp[]']")) == 6
+                            or self.is_logged_in()
+                            or "/public/login/msg/" in d.current_url
+                        )
                     )
                 except (WebDriverException, OSError) as e:
                     logger.debug(f"Wait for MFA form timed out or encountered issue: {e}")
@@ -497,9 +544,14 @@ class SessionManager:
                     # Do NOT press Enter or click after OTP fill; wait for dashboard URL
                     print("[AUTO LOGIN] Waiting for MRTG dashboard...")
                     try:
-                        WebDriverWait(self.driver, self.config.LONG_TIMEOUT,
-                                      ignored_exceptions=[StaleElementReferenceException]).until(
-                            lambda d: d.current_url.startswith("https://telkomcare.telkom.co.id/mrtgnetcare2")
+                        WebDriverWait(
+                            self.driver,
+                            self.config.LONG_TIMEOUT,
+                            ignored_exceptions=[StaleElementReferenceException],
+                        ).until(
+                            lambda d: d.current_url.startswith(
+                                "https://telkomcare.telkom.co.id/mrtgnetcare2"
+                            )
                         )
                     except (WebDriverException, OSError) as e:
                         logger.debug(f"Wait for MRTG dashboard after OTP timed out: {e}")

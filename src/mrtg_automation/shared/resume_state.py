@@ -7,14 +7,20 @@ from .paths import STATE_DIR
 
 logger = logging.getLogger("mrtg_automation.shared.resume_state")
 
-def get_resume_state_path(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> Path:
+
+def get_resume_state_path(
+    state_dir: Path | str | None = None, output_dir: Path | str | None = None
+) -> Path:
     if state_dir is not None:
         return Path(state_dir).expanduser().resolve() / "resume_state.json"
     elif output_dir is not None:
         return Path(output_dir).expanduser().resolve() / "state" / "resume_state.json"
     return STATE_DIR / "resume_state.json"
 
-def load_resume_state(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> dict | None:
+
+def load_resume_state(
+    state_dir: Path | str | None = None, output_dir: Path | str | None = None
+) -> dict | None:
     path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     if not path.exists():
         return None
@@ -25,7 +31,10 @@ def load_resume_state(state_dir: Path | str | None = None, output_dir: Path | st
         logger.error(f"Failed to load resume state: {e}")
         return None
 
-def save_resume_state(state: dict, state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> None:
+
+def save_resume_state(
+    state: dict, state_dir: Path | str | None = None, output_dir: Path | str | None = None
+) -> None:
     path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     target_dir = path.parent
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -36,7 +45,10 @@ def save_resume_state(state: dict, state_dir: Path | str | None = None, output_d
     except Exception as e:
         logger.error(f"Failed to save resume state: {e}")
 
-def clear_resume_state(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> None:
+
+def clear_resume_state(
+    state_dir: Path | str | None = None, output_dir: Path | str | None = None
+) -> None:
     path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     try:
         if path.exists():
@@ -44,7 +56,10 @@ def clear_resume_state(state_dir: Path | str | None = None, output_dir: Path | s
     except Exception as e:
         logger.error(f"Failed to clear resume state: {e}")
 
-def has_unfinished_resume_state(state_dir: Path | str | None = None, output_dir: Path | str | None = None) -> bool:
+
+def has_unfinished_resume_state(
+    state_dir: Path | str | None = None, output_dir: Path | str | None = None
+) -> bool:
     state = load_resume_state(state_dir=state_dir, output_dir=output_dir)
     if not state:
         return False
@@ -63,13 +78,13 @@ def format_resume_summary(state: dict) -> str:
 
     lines.append(f"Phase: {state.get('current_phase', 'Unknown')}")
 
-    total = state.get('total_items', 0)
-    completed = state.get('completed_items_count', 0)
+    total = state.get("total_items", 0)
+    completed = state.get("completed_items_count", 0)
     lines.append(f"Progress: {completed}/{total}")
 
-    phase_total = state.get('phase_total_items', 0)
+    phase_total = state.get("phase_total_items", 0)
     if phase_total > 0:
-        phase_completed = state.get('phase_completed_items_count', 0)
+        phase_completed = state.get("phase_completed_items_count", 0)
         lines.append(f"Phase progress: {phase_completed}/{phase_total}")
 
     lines.append(f"Last completed: {state.get('last_completed', 'None')}")
@@ -77,8 +92,10 @@ def format_resume_summary(state: dict) -> str:
 
     return "\n".join(lines)
 
+
 def make_item_key(phase: str, mode: str, date_str: str, target: str) -> str:
     return f"{phase}|{mode}|{date_str}|{target}"
+
 
 def get_completed_item_keys(state: dict) -> set[str]:
     keys = set()
@@ -86,8 +103,16 @@ def get_completed_item_keys(state: dict) -> set[str]:
         if "key" in item:
             keys.add(item["key"])
         else:
-            keys.add(make_item_key(item.get("phase", ""), item.get("mode", ""), item.get("date", ""), item.get("target", "")))
+            keys.add(
+                make_item_key(
+                    item.get("phase", ""),
+                    item.get("mode", ""),
+                    item.get("date", ""),
+                    item.get("target", ""),
+                )
+            )
     return keys
+
 
 def mark_item_completed(state: dict, item: dict) -> dict:
     if "completed_items" not in state:
@@ -100,6 +125,7 @@ def mark_item_completed(state: dict, item: dict) -> dict:
         state["last_completed"] = key
         state["next_item"] = None
     return state
+
 
 def count_completed_items_for_phase(state: dict, phase: str) -> int:
     return sum(1 for item in state.get("completed_items", []) if item.get("phase") == phase)

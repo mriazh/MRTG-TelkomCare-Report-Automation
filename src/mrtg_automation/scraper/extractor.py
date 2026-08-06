@@ -1,6 +1,7 @@
 """
 Graph Extractor for TelkomCare MRTG portal.
 """
+
 import logging
 import time
 from functools import wraps
@@ -19,7 +20,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-logger = logging.getLogger('mrtg_automation.scraper.extractor')
+logger = logging.getLogger("mrtg_automation.scraper.extractor")
+
 
 # ── Logging filter to suppress raw Selenium stale-element stacktrace spam ──
 class StaleElementFilter(logging.Filter):
@@ -28,19 +30,23 @@ class StaleElementFilter(logging.Filter):
     the app's own warning/error logs (which may mention 'stale' in context)
     will still pass through.
     """
+
     def filter(self, record):
         msg = record.getMessage()
         if "Stacktrace:" in msg or ("stale element reference" in msg and "selenium" in msg.lower()):
             return False
         return True
 
+
 logger.addFilter(StaleElementFilter())
+
 
 # ── Retry decorator for transient StaleElementReferenceException ──
 def retry_on_stale(max_retries=3, base_delay=0.5):
     """Decorator that retries a function on StaleElementReferenceException.
     Uses exponential backoff between retries.
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -50,14 +56,16 @@ def retry_on_stale(max_retries=3, base_delay=0.5):
                 except StaleElementReferenceException:
                     if attempt == max_retries - 1:
                         raise
-                    time.sleep(base_delay * (2 ** attempt))
+                    time.sleep(base_delay * (2**attempt))
             return None
+
         return wrapper
+
     return decorator
 
 
 class GraphExtractor:
-    def __init__(self, driver, mode='sid', data_dir=None):
+    def __init__(self, driver, mode="sid", data_dir=None):
         self.driver = driver
         self.mode = mode.lower()
         self.data_dir = Path(data_dir) if data_dir is not None else None
@@ -70,15 +78,15 @@ class GraphExtractor:
         """
         Anti-stale element pattern: re-find element on StaleElementReferenceException
         and retry the action. Does NOT cache elements across calls.
-        
+
         Args:
             locator: Tuple of (By, selector) for WebDriverWait
             action: Callable that takes the found element and performs the interaction
             max_retries: Max retry attempts (default: self._stale_retry_limit)
-        
+
         Returns:
             Result of action(element) on success
-        
+
         Raises:
             StaleElementReferenceException: If all retries exhausted
             TimeoutException: If element never becomes clickable
@@ -86,10 +94,10 @@ class GraphExtractor:
         """
         if max_retries is None:
             max_retries = self._stale_retry_limit
-        
+
         wait = WebDriverWait(self.driver, 10)
         last_exception = None
-        
+
         for attempt in range(max_retries):
             try:
                 # Always re-find the element fresh - never cache across attempts
@@ -97,10 +105,12 @@ class GraphExtractor:
                 return action(element)
             except StaleElementReferenceException as e:
                 last_exception = e
-                logger.debug(f"Stale element on attempt {attempt + 1}/{max_retries} for {locator}, retrying...")
+                logger.debug(
+                    f"Stale element on attempt {attempt + 1}/{max_retries} for {locator}, retrying..."
+                )
                 time.sleep(0.5)  # Brief pause before retry
                 continue
-        
+
         # All retries exhausted
         logger.warning(f"Element remained stale after {max_retries} attempts for {locator}")
         raise last_exception
@@ -147,10 +157,18 @@ class GraphExtractor:
             time.sleep(1)
 
             # Click submenu based on mode
-            if self.mode == 'sid':
-                submenu = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/mrtgnetcare2/graph/monitoring')]")))
+            if self.mode == "sid":
+                submenu = wait.until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//a[contains(@href, '/mrtgnetcare2/graph/monitoring')]")
+                    )
+                )
             else:
-                submenu = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[@data-id='1' and contains(@href, '/mrtgnetcare2/graph')]")))
+                submenu = wait.until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, "//a[@data-id='1' and contains(@href, '/mrtgnetcare2/graph')]")
+                    )
+                )
             submenu.click()
             time.sleep(1)
             return True
@@ -161,13 +179,14 @@ class GraphExtractor:
     def input_target(self, target_id: str) -> bool:
         self.dismiss_alert_if_present()
         try:
-            input_name = 'sid' if self.mode == 'sid' else 'graphtitle'
-            
+            input_name = "sid" if self.mode == "sid" else "graphtitle"
+
             # Input target ID with anti-stale retry
             def do_input(elem):
                 elem.clear()
                 elem.send_keys(target_id)
                 elem.send_keys(Keys.ENTER)
+
             self._retry_on_stale((By.NAME, input_name), do_input)
             time.sleep(2)
 
@@ -175,9 +194,10 @@ class GraphExtractor:
             def do_click(elem):
                 self.driver.execute_script("arguments[0].scrollIntoView(true);", elem)
                 self.driver.execute_script("arguments[0].click();", elem)
+
             self._retry_on_stale((By.CSS_SELECTOR, "a.btn-graph"), do_click)
             time.sleep(2)
-            
+
             if not self.wait_for_detail_ready():
                 logger.error(f"Detail page did not become ready for target {target_id}")
                 return False
@@ -187,7 +207,9 @@ class GraphExtractor:
             logger.warning(f"input_target alert dismissed for {target_id}: {e}")
             return False
         except (StaleElementReferenceException, TimeoutException):
-            logger.warning(f"input_target DOM error for {target_id} after retries, re-raising for retry")
+            logger.warning(
+                f"input_target DOM error for {target_id} after retries, re-raising for retry"
+            )
             raise
         except Exception as e:
             logger.error(f"input_target error: {e}")
@@ -197,60 +219,77 @@ class GraphExtractor:
         """Set date filter with anti-stale retry for DOM interactions."""
         start_str = date_obj.strftime("%d/%m/%Y 00:00")
         end_str = date_obj.strftime("%d/%m/%Y 23:55")
-        
+
         max_retries = self._stale_retry_limit
-        
+
         for attempt in range(max_retries):
             try:
                 wait = WebDriverWait(self.driver, 10)
-                
-                if self.mode == 'sid':
+
+                if self.mode == "sid":
                     # Find filter button and date inputs fresh each attempt
-                    filter_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(normalize-space(), 'Filter')]")))
-                    inputs = self.driver.find_elements(By.XPATH, "//button[contains(normalize-space(), 'Filter')]/preceding::input[not(@type='hidden')]")
+                    wait.until(
+                        EC.element_to_be_clickable(
+                            (By.XPATH, "//button[contains(normalize-space(), 'Filter')]")
+                        )
+                    )
+                    inputs = self.driver.find_elements(
+                        By.XPATH,
+                        "//button[contains(normalize-space(), 'Filter')]/preceding::input[not(@type='hidden')]",
+                    )
                     if len(inputs) < 2:
                         logger.error("Could not find date inputs for SID mode")
                         return False
                     start_input = inputs[-2]
                     end_input = inputs[-1]
-                    
+
                     # Set values via JS (more resilient to stale refs)
                     self.driver.execute_script(
                         "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
-                        start_input, start_str
-                    )
-                    self.driver.execute_script(
-                        "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
-                        end_input, end_str
-                    )
-                    # Click filter button with anti-stale
-                    def do_click(elem):
-                        self.driver.execute_script("arguments[0].click();", elem)
-                    self._retry_on_stale((By.XPATH, "//button[contains(normalize-space(), 'Filter')]"), do_click)
-                else:
-                    # graphtitle mode - find all elements fresh
-                    start_input = wait.until(EC.presence_of_element_located((By.ID, "startdate")))
-                    end_input = wait.until(EC.presence_of_element_located((By.ID, "enddate")))
-                    btn = wait.until(EC.element_to_be_clickable((By.ID, "graphfilter")))
-
-                    self.driver.execute_script(
-                        "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
                         start_input,
-                        start_str
+                        start_str,
                     )
                     self.driver.execute_script(
                         "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
                         end_input,
-                        end_str
+                        end_str,
                     )
+
+                    # Click filter button with anti-stale
                     def do_click(elem):
                         self.driver.execute_script("arguments[0].click();", elem)
+
+                    self._retry_on_stale(
+                        (By.XPATH, "//button[contains(normalize-space(), 'Filter')]"), do_click
+                    )
+                else:
+                    # graphtitle mode - find all elements fresh
+                    start_input = wait.until(EC.presence_of_element_located((By.ID, "startdate")))
+                    end_input = wait.until(EC.presence_of_element_located((By.ID, "enddate")))
+                    wait.until(EC.element_to_be_clickable((By.ID, "graphfilter")))
+
+                    self.driver.execute_script(
+                        "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
+                        start_input,
+                        start_str,
+                    )
+                    self.driver.execute_script(
+                        "arguments[0].value = arguments[1]; arguments[0].dispatchEvent(new Event('change'));",
+                        end_input,
+                        end_str,
+                    )
+
+                    def do_click(elem):
+                        self.driver.execute_script("arguments[0].click();", elem)
+
                     self._retry_on_stale((By.ID, "graphfilter"), do_click)
-                
+
                 return True
-                
-            except StaleElementReferenceException as e:
-                logger.debug(f"set_date_filter stale element on attempt {attempt + 1}/{max_retries}, retrying...")
+
+            except StaleElementReferenceException:
+                logger.debug(
+                    f"set_date_filter stale element on attempt {attempt + 1}/{max_retries}, retrying..."
+                )
                 time.sleep(0.5)
                 continue
             except Exception as e:
@@ -259,7 +298,7 @@ class GraphExtractor:
                     f"url={self.driver.current_url}; title={self.driver.title}"
                 )
                 return False
-        
+
         logger.warning(f"set_date_filter failed after {max_retries} stale retries")
         return False
 
@@ -267,24 +306,28 @@ class GraphExtractor:
         # Wait for any common loading overlays to disappear
         try:
             WebDriverWait(self.driver, timeout).until_not(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".blockUI, .loading, #loader, .spinner"))
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, ".blockUI, .loading, #loader, .spinner")
+                )
             )
         except Exception:
             pass
 
     def mode_url(self) -> str:
-        if self.mode == 'sid':
-            return 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring'
-        return 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph'
+        if self.mode == "sid":
+            return "https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring"
+        return "https://telkomcare.telkom.co.id/mrtgnetcare2/graph"
 
     def wait_for_detail_ready(self, timeout: int = 15) -> bool:
         """Wait until target detail/filter controls are ready after Show Graph click."""
         try:
             wait = WebDriverWait(self.driver, timeout)
-            if self.mode == 'sid':
-                wait.until(EC.presence_of_element_located(
-                    (By.XPATH, "//button[contains(normalize-space(), 'Filter')]")
-                ))
+            if self.mode == "sid":
+                wait.until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//button[contains(normalize-space(), 'Filter')]")
+                    )
+                )
                 return True
 
             wait.until(EC.presence_of_element_located((By.ID, "startdate")))
@@ -330,7 +373,7 @@ class GraphExtractor:
     def wait_for_graph_render(self, timeout=15):
         """Wait for graph image to render, with anti-stale retry."""
         locator = (By.XPATH, "//img[contains(@src, 'graph.php')]")
-        
+
         for _ in range(timeout):
             try:
                 imgs = self.driver.find_elements(*locator)
@@ -369,7 +412,7 @@ class GraphExtractor:
         if target is None:
             logger.error("Could not find graph image for isolation")
             return False
-        
+
         script = """
         window._hidden_elements = [];
         var target = arguments[0];
@@ -426,7 +469,7 @@ class GraphExtractor:
         if target is None:
             logger.warning("Could not find graph image for UI restore")
             return False
-        
+
         script = """
         if(window._hidden_elements) {
             for(var i=0; i<window._hidden_elements.length; i++) {
@@ -463,11 +506,11 @@ class GraphExtractor:
                     logger.error(f"Image {filepath} too small: {w}x{h}")
                     return False
 
-                rgb = img.convert('RGB')
+                rgb = img.convert("RGB")
                 extrema = rgb.getextrema()
                 ranges = [hi - lo for lo, hi in extrema]
 
-                gray = img.convert('L')
+                gray = img.convert("L")
                 gray_min, gray_max = gray.getextrema()
                 luminance_range = gray_max - gray_min
 
@@ -505,7 +548,7 @@ class GraphExtractor:
             logger.error(f"validate_image error on {filepath}: {e}")
             return False
 
-    def capture_graph(self, target_id: str, date_obj) -> 'Path | None':
+    def capture_graph(self, target_id: str, date_obj) -> "Path | None":
         self.last_status = None
         self.last_error = None
         for attempt in range(1, 4):
@@ -519,7 +562,9 @@ class GraphExtractor:
 
                 if not self.input_target(target_id):
                     if attempt < 3:
-                        logger.warning(f"input_target failed for {target_id}, retrying attempt {attempt + 1}/3")
+                        logger.warning(
+                            f"input_target failed for {target_id}, retrying attempt {attempt + 1}/3"
+                        )
                         self.recover_graph_page()
                         time.sleep(2)
                         continue
@@ -530,7 +575,9 @@ class GraphExtractor:
 
                 if not self.set_date_filter(date_obj):
                     if attempt < 3:
-                        logger.warning(f"set_date_filter failed for {target_id}, retrying attempt {attempt + 1}/3")
+                        logger.warning(
+                            f"set_date_filter failed for {target_id}, retrying attempt {attempt + 1}/3"
+                        )
                         self.recover_graph_page()
                         time.sleep(2)
                         continue
@@ -566,6 +613,7 @@ class GraphExtractor:
                 time.sleep(3)
 
                 from mrtg_automation.shared.filenames import get_screenshot_path
+
                 final_file = get_screenshot_path(target_id, date_obj, self.data_dir)
                 output_dir = final_file.parent
                 output_dir.mkdir(parents=True, exist_ok=True)
@@ -608,7 +656,9 @@ class GraphExtractor:
                     self.last_error = "TelkomCare returned No graph"
                 else:
                     self.last_status = "error"
-                    self.last_error = f"Invalid graph capture after 3 attempts ({self.last_validation_error})"
+                    self.last_error = (
+                        f"Invalid graph capture after 3 attempts ({self.last_validation_error})"
+                    )
 
                 logger.error(f"Invalid graph capture for {target_id} after 3 attempts")
                 return None
@@ -621,7 +671,9 @@ class GraphExtractor:
                 continue
             except UnexpectedAlertPresentException as e:
                 self.dismiss_alert_if_present()
-                logger.warning(f"Unexpected alert during capture for {target_id} on attempt {attempt}/3: {e}")
+                logger.warning(
+                    f"Unexpected alert during capture for {target_id} on attempt {attempt}/3: {e}"
+                )
                 continue
             except Exception as e:
                 logger.error(f"capture_graph error for {target_id}: {e}")

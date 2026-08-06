@@ -1,86 +1,91 @@
 import sys
 import datetime
-import re
 import csv
 from pathlib import Path
 from mrtg_automation.scraper.telkomcare import TelkomCareScraper
 
+
 def parse_target_file(path: Path):
     sid_targets = []
     graphtitle_targets = []
-    
+
     if not path.exists():
         print(f"[ERROR] Config file not found: {path}")
         return sid_targets, graphtitle_targets
-        
+
     truthy = {"true", "1", "yes", "y"}
-    with open(path, 'r', encoding='utf-8-sig') as f:
+    with open(path, "r", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             if row.get("image_enabled", "").strip().lower() in truthy:
                 target_type = row.get("type", "").strip().lower()
                 target_id = row.get("target", "").strip()
-                if 'sid' in target_type:
+                if "sid" in target_type:
                     sid_targets.append(target_id)
-                elif 'graph-title' in target_type or 'graphtitle' in target_type:
+                elif "graph-title" in target_type or "graphtitle" in target_type:
                     graphtitle_targets.append(target_id)
-                    
+
     return sid_targets, graphtitle_targets
+
 
 def main():
     print("=" * 70)
     print("TEST: Full 20-Target 1-Date Scrape")
     print("=" * 70)
-    
+
     config_path = Path("config/list_mrtg_targets.csv")
     sid_targets, graphtitle_targets = parse_target_file(config_path)
-    
+
     test_date = datetime.date(2026, 6, 21)
     all_targets = sid_targets + graphtitle_targets
-    
+
     print(f"Parsed SID targets: {len(sid_targets)}")
     print(f"Parsed Graph-title targets: {len(graphtitle_targets)}")
     print(f"Total targets: {len(all_targets)}")
-    
+
     if not all_targets:
         print("[FAIL] No targets found to test")
         return 1
-        
+
     scraper = TelkomCareScraper(headless=False)
-    
+
     try:
         print("\nLogging in...")
         if not scraper.login():
             print("[FAIL] Login failed")
             return 1
-            
+
         results_all = {}
-        
+
         if sid_targets:
             print(f"\nScraping {len(sid_targets)} SID targets for date {test_date}...")
-            results_sid = scraper.scrape(targets=sid_targets, dates=[test_date], mode='sid')
+            results_sid = scraper.scrape(targets=sid_targets, dates=[test_date], mode="sid")
             if results_sid:
                 results_all.update(results_sid)
-                
+
         if graphtitle_targets:
-            print(f"\nScraping {len(graphtitle_targets)} Graph-title targets for date {test_date}...")
-            results_gt = scraper.scrape(targets=graphtitle_targets, dates=[test_date], mode='graphtitle')
+            print(
+                f"\nScraping {len(graphtitle_targets)} Graph-title targets for date {test_date}..."
+            )
+            results_gt = scraper.scrape(
+                targets=graphtitle_targets, dates=[test_date], mode="graphtitle"
+            )
             if results_gt:
                 results_all.update(results_gt)
-                
+
         if not results_all:
             print("[FAIL] Scrape returned no results")
             return 1
-            
+
         print("\n" + "-" * 70)
         passed = 0
         na_count = 0
         failed_count = 0
         failed_targets = []
-        
+
         for target in all_targets:
             filepath = results_all.get(target, {}).get(test_date)
-            
+
             if filepath:
                 p = Path(filepath)
                 if p.exists() and p.stat().st_size > 0:
@@ -96,24 +101,29 @@ def main():
                     print(f"[N/A] {target} (TelkomCare returned No graph)")
                     na_count += 1
                 else:
-                    print(f"[FAIL] {target} (no filepath returned, status: {status_info.get('status')}, error: {status_info.get('error')})")
+                    print(
+                        f"[FAIL] {target} (no filepath returned, status: {status_info.get('status')}, error: {status_info.get('error')})"
+                    )
                     failed_targets.append(target)
                     failed_count += 1
-                
+
         print("-" * 70)
-        print(f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {len(all_targets)} total")
-        
+        print(
+            f"SUMMARY: {passed} OK, {na_count} N/A, {failed_count} FAIL, {len(all_targets)} total"
+        )
+
         if failed_targets:
             print("Failed targets:")
             for t in failed_targets:
                 print(f"  - {t}")
-                
+
         if failed_count == 0:
             return 0
         return 1
-            
+
     finally:
         scraper.close()
+
 
 if __name__ == "__main__":
     sys.exit(main())

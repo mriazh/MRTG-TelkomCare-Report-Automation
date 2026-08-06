@@ -4,9 +4,9 @@ TelkomCare MRTG scraper.
 Main entry point for M4 scraping pipeline.
 Uses SessionManager for persistent Chrome profile and login handling.
 """
+
 import logging
 import time
-from datetime import date
 
 from mrtg_automation.shared.filenames import get_screenshot_path, is_image_file_valid
 from mrtg_automation.shared.resume_state import (
@@ -20,7 +20,7 @@ from mrtg_automation.shared.resume_state import (
 from .session import SessionManager
 
 
-logger = logging.getLogger('mrtg_automation.scraper.telkomcare')
+logger = logging.getLogger("mrtg_automation.scraper.telkomcare")
 
 
 class TelkomCareScraper:
@@ -37,9 +37,15 @@ class TelkomCareScraper:
         # P4: scraper.scrape(...)
     """
 
-    def __init__(self, config=None, profile_dir: str = None, headless: bool = True,
-                 base_url: str = 'https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring', cancel_event=None,
-                 data_dir=None):
+    def __init__(
+        self,
+        config=None,
+        profile_dir: str = None,
+        headless: bool = True,
+        base_url: str = "https://telkomcare.telkom.co.id/mrtgnetcare2/graph/monitoring",
+        cancel_event=None,
+        data_dir=None,
+    ):
         self.config = config
         self.base_url = base_url
         self.headless = headless
@@ -50,7 +56,7 @@ class TelkomCareScraper:
             profile_dir=profile_dir,
             headless=headless,
             base_url=base_url,
-            cancel_event=cancel_event
+            cancel_event=cancel_event,
         )
         self.last_statuses = {}
         self._logged_in = False
@@ -104,11 +110,12 @@ class TelkomCareScraper:
                 logger.warning("[STOP] Login cancelled by user.")
                 return False
 
-            if getattr(self.session.driver, 'current_url', None) != self.base_url:
+            if getattr(self.session.driver, "current_url", None) != self.base_url:
                 self.session.driver.get(self.base_url)
 
             # Give page time to load
             import time
+
             for _ in range(10):
                 if self._is_cancelled():
                     self.last_cancelled = True
@@ -156,6 +163,7 @@ class TelkomCareScraper:
         reference. This method rebuilds it and navigates back to the graph page.
         """
         from .extractor import GraphExtractor
+
         extractor = GraphExtractor(self.session.driver, mode, data_dir=self.data_dir)
         if not extractor.navigate_to_graph_page():
             logger.error("Failed to navigate to graph page after re-login")
@@ -163,14 +171,25 @@ class TelkomCareScraper:
         logger.info("Recreated extractor with new driver after re-login")
         return extractor
 
-    def scrape(self, targets: list[str], dates: list,
-               mode: str = 'sid', progress_callback=None, cancel_event=None, pause_event=None, resume_state=None, phase=None, resume_mode=False) -> dict:
+    def scrape(
+        self,
+        targets: list[str],
+        dates: list,
+        mode: str = "sid",
+        progress_callback=None,
+        cancel_event=None,
+        pause_event=None,
+        resume_state=None,
+        phase=None,
+        resume_mode=False,
+    ) -> dict:
         """Scrape all targets for all dates. Browser stays alive for entire session."""
         if not self._logged_in:
             if not self.login():
                 return None
 
         from .extractor import GraphExtractor
+
         extractor = GraphExtractor(self.session.driver, mode, data_dir=self.data_dir)
 
         # Navigate to graph page ONCE before the loop (Opsi A: browser stays alive)
@@ -185,7 +204,9 @@ class TelkomCareScraper:
         current_index = 0
 
         phase = phase or ("scrape_sid" if mode == "sid" else "scrape_graphtitle")
-        completed_keys = get_completed_item_keys(resume_state) if resume_state and resume_mode else set()
+        completed_keys = (
+            get_completed_item_keys(resume_state) if resume_state and resume_mode else set()
+        )
 
         def find_completed_item(key):
             if not resume_state:
@@ -199,7 +220,9 @@ class TelkomCareScraper:
             resume_state["status"] = "running"
             resume_state["current_phase"] = phase
             resume_state["phase_total_items"] = total_items
-            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(
+                resume_state, phase
+            )
             if not resume_state.get("total_items"):
                 resume_state["total_items"] = total_items
             save_resume_state(resume_state)
@@ -208,13 +231,19 @@ class TelkomCareScraper:
         retry_queue = []  # Targets that failed transiently (DataTables alert) — retried after main loop
 
         for date_obj in dates:
-            date_str = date_obj.strftime('%Y%m%d')
+            date_str = date_obj.strftime("%Y%m%d")
 
             for target in targets:
                 key = make_item_key(phase, mode, date_str, target)
 
                 if resume_state is not None:
-                    resume_state["next_item"] = {"phase": phase, "mode": mode, "date": date_str, "target": target, "key": key}
+                    resume_state["next_item"] = {
+                        "phase": phase,
+                        "mode": mode,
+                        "date": date_str,
+                        "target": target,
+                        "key": key,
+                    }
                     save_resume_state(resume_state)
 
                 if cancel_event is not None and cancel_event.is_set():
@@ -250,24 +279,46 @@ class TelkomCareScraper:
                             results[target][date_obj] = path
                         else:
                             existing_path = get_screenshot_path(target, date_obj, self.data_dir)
-                            if existing_path and existing_path.exists() and existing_path.stat().st_size > 0:
+                            if (
+                                existing_path
+                                and existing_path.exists()
+                                and existing_path.stat().st_size > 0
+                            ):
                                 if target not in results:
                                     results[target] = {}
                                 results[target][date_obj] = str(existing_path)
 
-                        print(f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} already completed")
+                        print(
+                            f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} already completed"
+                        )
                         current_index += 1
                         continue
 
                 if resume_mode:
                     existing_path = get_screenshot_path(target, date_obj, self.data_dir)
-                    if existing_path and existing_path.exists() and existing_path.stat().st_size > 0:
+                    if (
+                        existing_path
+                        and existing_path.exists()
+                        and existing_path.stat().st_size > 0
+                    ):
                         self.last_statuses[(target, date_obj)] = {"status": "ok", "error": None}
-                        print(f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} existing screenshot")
+                        print(
+                            f"[SKIP] {mode} {current_index + 1}/{total_items} date={date_str} target={target} existing screenshot"
+                        )
                         if resume_state is not None:
-                            item = {"phase": phase, "mode": mode, "date": date_str, "target": target, "status": "ok", "key": key, "path": str(existing_path)}
+                            item = {
+                                "phase": phase,
+                                "mode": mode,
+                                "date": date_str,
+                                "target": target,
+                                "status": "ok",
+                                "key": key,
+                                "path": str(existing_path),
+                            }
                             mark_item_completed(resume_state, item)
-                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                            resume_state["phase_completed_items_count"] = (
+                                count_completed_items_for_phase(resume_state, phase)
+                            )
                             save_resume_state(resume_state)
                             completed_keys.add(key)
                         if target not in results:
@@ -287,8 +338,9 @@ class TelkomCareScraper:
                         filepath = extractor.capture_graph(target, date_obj)
 
                         status_info = {
-                            "status": getattr(extractor, 'last_status', None) or ("ok" if filepath else "error"),
-                            "error": getattr(extractor, 'last_error', None),
+                            "status": getattr(extractor, "last_status", None)
+                            or ("ok" if filepath else "error"),
+                            "error": getattr(extractor, "last_error", None),
                         }
 
                         if not filepath and status_info.get("status") != "no_graph":
@@ -300,32 +352,48 @@ class TelkomCareScraper:
                                 # Do NOT count toward transient consecutive_failures.
                                 relogin_attempts += 1
                                 if relogin_attempts > 3:
-                                    logger.error(f"Re-login exhausted for {target} after 3 attempts.")
+                                    logger.error(
+                                        f"Re-login exhausted for {target} after 3 attempts."
+                                    )
                                     msg = f"session_recovery_exhausted after {relogin_attempts - 1} login attempts"
-                                    print(f"[FAIL] Re-login exhausted for target={target} after 3 attempts. Stopping.")
+                                    print(
+                                        f"[FAIL] Re-login exhausted for target={target} after 3 attempts. Stopping."
+                                    )
                                     if self.headless:
-                                        print("[FAIL] Auto re-login failed in headless mode. No manual fallback available.")
+                                        print(
+                                            "[FAIL] Auto re-login failed in headless mode. No manual fallback available."
+                                        )
                                     self.last_cancelled = True
                                     status_info["status"] = "error"
                                     status_info["error"] = msg
                                     break
 
-                                logger.warning(f"Session expired for {target}. Attempting re-login ({relogin_attempts}/3)...")
-                                print(f"\n[WARNING] TelkomCare session expired for {target}. Re-login attempt {relogin_attempts}/3...")
+                                logger.warning(
+                                    f"Session expired for {target}. Attempting re-login ({relogin_attempts}/3)..."
+                                )
+                                print(
+                                    f"\n[WARNING] TelkomCare session expired for {target}. Re-login attempt {relogin_attempts}/3..."
+                                )
 
                                 relogin_ok = self.session.auto_login()
 
                                 if relogin_ok:
                                     new_extractor = self._recreate_extractor(mode)
                                     if new_extractor is None:
-                                        print("[FAIL] Could not navigate after re-login. Stopping scrape.")
+                                        print(
+                                            "[FAIL] Could not navigate after re-login. Stopping scrape."
+                                        )
                                         self.last_cancelled = True
                                         break
                                     extractor = new_extractor
-                                    print(f"\n[INFO] Session restored. Retrying target {target} (attempt {relogin_attempts}/3)...")
+                                    print(
+                                        f"\n[INFO] Session restored. Retrying target {target} (attempt {relogin_attempts}/3)..."
+                                    )
                                     continue
                                 else:
-                                    print(f"[FAIL] Auto re-login failed for {target}. Stopping scrape.")
+                                    print(
+                                        f"[FAIL] Auto re-login failed for {target}. Stopping scrape."
+                                    )
                                     self.last_cancelled = True
                                     break
                             else:
@@ -352,15 +420,23 @@ class TelkomCareScraper:
                                     # (capture_graph already did its 3 internal retries; this is telkomcare-level retry)
                                     consecutive_failures += 1
                                     if consecutive_failures >= 3:
-                                        logger.warning(f"3 consecutive transient failures for {target}: {error_msg} — queuing for retry pass.")
-                                        print(f"\n[WARNING] 3 transient failures — queuing for retry pass: {target} ({error_msg})")
+                                        logger.warning(
+                                            f"3 consecutive transient failures for {target}: {error_msg} — queuing for retry pass."
+                                        )
+                                        print(
+                                            f"\n[WARNING] 3 transient failures — queuing for retry pass: {target} ({error_msg})"
+                                        )
                                         retry_queue.append((target, date_obj, mode, phase, key))
                                         consecutive_failures = 0
                                         break
                                     else:
                                         # Inline retry: recover page and continue while loop to call capture_graph again
-                                        logger.warning(f"Transient failure {consecutive_failures}/3 for {target}: {error_msg} — retrying inline.")
-                                        print(f"\n[RETRY] Transient failure {consecutive_failures}/3 for {target} — recovering page and retrying inline.")
+                                        logger.warning(
+                                            f"Transient failure {consecutive_failures}/3 for {target}: {error_msg} — retrying inline."
+                                        )
+                                        print(
+                                            f"\n[RETRY] Transient failure {consecutive_failures}/3 for {target} — recovering page and retrying inline."
+                                        )
                                         extractor.recover_graph_page()
                                         time.sleep(2)
                                         continue
@@ -369,8 +445,12 @@ class TelkomCareScraper:
                                     # Fall back to old 3-strike logic for backward compatibility
                                     consecutive_failures += 1
                                     if consecutive_failures >= 3:
-                                        logger.warning(f"3 consecutive transient failures (latest: {target}). Adding to retry queue.")
-                                        print(f"\n[WARNING] 3 consecutive transient failures (target={target}). Queuing for retry pass...")
+                                        logger.warning(
+                                            f"3 consecutive transient failures (latest: {target}). Adding to retry queue."
+                                        )
+                                        print(
+                                            f"\n[WARNING] 3 consecutive transient failures (target={target}). Queuing for retry pass..."
+                                        )
                                         retry_queue.append((target, date_obj, mode, phase, key))
                                         consecutive_failures = 0
                                         break
@@ -412,12 +492,14 @@ class TelkomCareScraper:
                                 "status": norm_status,
                                 "error": status_info.get("error"),
                                 "path": str(filepath) if filepath else None,
-                                "key": key
+                                "key": key,
                             }
                             if norm_status != "error":
                                 mark_item_completed(resume_state, item)
                                 completed_keys.add(key)
-                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                            resume_state["phase_completed_items_count"] = (
+                                count_completed_items_for_phase(resume_state, phase)
+                            )
                             save_resume_state(resume_state)
 
                         break  # Target completed (success or final failure without relogin)
@@ -436,9 +518,11 @@ class TelkomCareScraper:
                                 "status": "error",
                                 "error": str(e),
                                 "path": None,
-                                "key": key
+                                "key": key,
                             }
-                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, phase)
+                            resume_state["phase_completed_items_count"] = (
+                                count_completed_items_for_phase(resume_state, phase)
+                            )
                             save_resume_state(resume_state)
 
                         break
@@ -457,22 +541,30 @@ class TelkomCareScraper:
                     if self.headless:
                         # In headless mode, auto re-login failed and there is no manual fallback.
                         remaining = total_items - current_index
-                        print(f"\n[FAIL] Auto re-login failed in headless mode. {remaining} target(s) not processed.")
+                        print(
+                            f"\n[FAIL] Auto re-login failed in headless mode. {remaining} target(s) not processed."
+                        )
                         print("[FAIL] No manual fallback available in headless mode.")
-                        print("[INFO] To resume after fixing credentials/connectivity, run with --resume.")
+                        print(
+                            "[INFO] To resume after fixing credentials/connectivity, run with --resume."
+                        )
                     return results
 
         # Retry pass for transient failures (Issue 2)
         if retry_queue:
-            print(f"\n[RETRY] Starting retry pass for {len(retry_queue)} transient-failed targets...")
+            print(
+                f"\n[RETRY] Starting retry pass for {len(retry_queue)} transient-failed targets..."
+            )
             for retry_target, retry_date, retry_mode, retry_phase, retry_key in retry_queue:
-                retry_date_str = retry_date.strftime('%Y%m%d')
+                retry_date_str = retry_date.strftime("%Y%m%d")
                 for attempt in range(2):
                     if self.cancel_event is not None and self.cancel_event.is_set():
                         break
                     if attempt > 0:
                         time.sleep(30)  # Cooldown between attempts
-                    print(f"[RETRY] {retry_mode} attempt {attempt+1}/2 date={retry_date_str} target={retry_target}")
+                    print(
+                        f"[RETRY] {retry_mode} attempt {attempt + 1}/2 date={retry_date_str} target={retry_target}"
+                    )
                     try:
                         retry_filepath = extractor.capture_graph(retry_target, retry_date)
                         if retry_filepath:
@@ -481,33 +573,53 @@ class TelkomCareScraper:
                             results[retry_target][retry_date] = str(retry_filepath)
                             if resume_state is not None:
                                 item = {
-                                    "phase": retry_phase, "mode": retry_mode,
-                                    "date": retry_date_str, "target": retry_target,
-                                    "status": "ok", "error": None, "path": str(retry_filepath),
-                                    "key": retry_key
+                                    "phase": retry_phase,
+                                    "mode": retry_mode,
+                                    "date": retry_date_str,
+                                    "target": retry_target,
+                                    "status": "ok",
+                                    "error": None,
+                                    "path": str(retry_filepath),
+                                    "key": retry_key,
                                 }
                                 mark_item_completed(resume_state, item)
-                                resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, retry_phase)
+                                resume_state["phase_completed_items_count"] = (
+                                    count_completed_items_for_phase(resume_state, retry_phase)
+                                )
                                 save_resume_state(resume_state)
-                            print(f"[RETRY OK] {retry_mode} date={retry_date_str} target={retry_target}")
+                            print(
+                                f"[RETRY OK] {retry_mode} date={retry_date_str} target={retry_target}"
+                            )
                             break
                         else:
-                            logger.warning(f"[RETRY FAIL] {retry_mode} date={retry_date_str} target={retry_target} attempt {attempt+1}/2")
+                            logger.warning(
+                                f"[RETRY FAIL] {retry_mode} date={retry_date_str} target={retry_target} attempt {attempt + 1}/2"
+                            )
                     except Exception as e:
-                        logger.error(f"[RETRY ERROR] {retry_mode} date={retry_date_str} target={retry_target} attempt {attempt+1}/2: {e}")
+                        logger.error(
+                            f"[RETRY ERROR] {retry_mode} date={retry_date_str} target={retry_target} attempt {attempt + 1}/2: {e}"
+                        )
 
                     if attempt == 1:  # Final failure after 2 retry attempts
                         if resume_state is not None:
                             item = {
-                                "phase": retry_phase, "mode": retry_mode,
-                                "date": retry_date_str, "target": retry_target,
-                                "status": "error", "error": "transient_failed_after_retry",
-                                "path": None, "key": retry_key
+                                "phase": retry_phase,
+                                "mode": retry_mode,
+                                "date": retry_date_str,
+                                "target": retry_target,
+                                "status": "error",
+                                "error": "transient_failed_after_retry",
+                                "path": None,
+                                "key": retry_key,
                             }
                             mark_item_completed(resume_state, item)
-                            resume_state["phase_completed_items_count"] = count_completed_items_for_phase(resume_state, retry_phase)
+                            resume_state["phase_completed_items_count"] = (
+                                count_completed_items_for_phase(resume_state, retry_phase)
+                            )
                             save_resume_state(resume_state)
-                        print(f"[RETRY FAIL] {retry_mode} date={retry_date_str} target={retry_target} — final failure after retry pass")
+                        print(
+                            f"[RETRY FAIL] {retry_mode} date={retry_date_str} target={retry_target} — final failure after retry pass"
+                        )
 
             if resume_state is not None:
                 save_resume_state(resume_state)
