@@ -273,19 +273,19 @@ class TestOCRReportHelpers(unittest.TestCase):
             audit_path = output_path.with_suffix(".ocr-audit.jsonl")
             audit_path.write_text("old\n", encoding="utf-8")
 
-            # Fresh run (resume_mode=False) should truncate
             fresh_audit = _prepare_audit_path(output_path, "OCR_IMAGE", resume_mode=False)
             self.assertEqual(fresh_audit, audit_path)
-            self.assertEqual("", audit_path.read_text(encoding="utf-8"))
+            self.assertEqual("old\n", audit_path.read_text(encoding="utf-8"))
 
-            # Write an entry
             with open(audit_path, "a", encoding="utf-8") as f:
                 f.write('{"test": 1}\n')
 
-            # Resume run (resume_mode=True) should preserve
             resume_audit = _prepare_audit_path(output_path, "OCR_IMAGE", resume_mode=True)
             self.assertEqual(resume_audit, audit_path)
-            self.assertEqual('{"test": 1}\n', audit_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                'old\n{"test": 1}\n',
+                audit_path.read_text(encoding="utf-8"),
+            )
 
             # Image only mode should return None
             none_audit = _prepare_audit_path(output_path, "IMAGE_ONLY", resume_mode=False)

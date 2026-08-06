@@ -68,7 +68,7 @@ def _prepare_audit_path(output_path, report_mode, resume_mode):
         return None
     audit_path = output_path.with_suffix(".ocr-audit.jsonl")
     audit_path.parent.mkdir(parents=True, exist_ok=True)
-    if not resume_mode:
+    if not resume_mode and not output_path.exists() and not audit_path.exists():
         audit_path.write_text("", encoding="utf-8")
     return audit_path
 
@@ -194,9 +194,9 @@ class ExcelReportGenerator:
 
         phase = phase or ("report_image" if report_mode == "IMAGE_ONLY" else "report_ocr")
 
-        if resume_mode and output_path.exists():
-            logger.info(f"Loading partial workbook: {output_path.name}")
-            print(f"[RESUME] Loading partial workbook: {output_path}")
+        if output_path.exists():
+            logger.info(f"Loading existing workbook: {output_path.name}")
+            print(f"[INCREMENTAL] Loading existing workbook: {output_path}")
             wb = load_workbook(output_path)
         else:
             logger.info(f"Loading template: {template_path.name}")
