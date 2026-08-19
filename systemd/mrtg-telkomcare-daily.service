@@ -1,0 +1,21 @@
+[Unit]
+Description=MRTG TelkomCare Automated Daily Scraping & Reporting
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=mriazh
+Group=mriazh
+WorkingDirectory=/home/mriazh/Github-PC/MRTG-TelkomCare-Report-Automation
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart=/bin/bash /home/mriazh/Github-PC/MRTG-TelkomCare-Report-Automation/scripts/run_daily_report.sh
+
+# Security sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/mriazh/Github-PC/MRTG-TelkomCare-Report-Automation/output /home/mriazh/.mrtg-scraper-profile /home/mriazh/.wdm /tmp
+
+[Install]
+WantedBy=multi-user.target
