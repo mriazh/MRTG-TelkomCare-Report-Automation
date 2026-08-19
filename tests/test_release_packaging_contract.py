@@ -268,8 +268,8 @@ class TestReleasePackagingContract(unittest.TestCase):
             "MRTG-TelkomCare.exe",
             "config/.env.example",
             "config/list_mrtg_targets.example.csv",
-            "config/list_mrtg_data_position.txt",
-            "config/list_mrtg_data_position_img_only.txt",
+            "config/list_mrtg_data_position.example.txt",
+            "config/list_mrtg_data_position_img_only.example.txt",
             "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
             "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
             "assets/app_icon.ico",
@@ -288,6 +288,16 @@ class TestReleasePackagingContract(unittest.TestCase):
         self.assertEqual(
             validate_release_manifest(["config/list_mrtg_targets.csv"]),
             ["config/list_mrtg_targets.csv"],
+        )
+
+    def test_rejects_private_data_position_txt(self):
+        self.assertEqual(
+            validate_release_manifest(["config/list_mrtg_data_position.txt"]),
+            ["config/list_mrtg_data_position.txt"],
+        )
+        self.assertEqual(
+            validate_release_manifest(["config/list_mrtg_data_position_img_only.txt"]),
+            ["config/list_mrtg_data_position_img_only.txt"],
         )
 
     def test_rejects_data_dir_entries(self):
@@ -343,8 +353,8 @@ def validate_release_manifest(
         "MRTG-TelkomCare.exe",
         "config/.env.example",
         "config/list_mrtg_targets.example.csv",
-        "config/list_mrtg_data_position.txt",
-        "config/list_mrtg_data_position_img_only.txt",
+        "config/list_mrtg_data_position.example.txt",
+        "config/list_mrtg_data_position_img_only.example.txt",
         "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
         "config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
         "assets/app_icon.ico",
@@ -362,6 +372,8 @@ def validate_release_manifest(
         "config/GRAPH-TITLE-MRTG.txt",
         "config/report-items.txt",
         "config/list_mrtg_targets.csv",
+        "config/list_mrtg_data_position.txt",
+        "config/list_mrtg_data_position_img_only.txt",
     )
     FORBIDDEN_DIR_PREFIXES = ("data/", "output/")
     violations = []

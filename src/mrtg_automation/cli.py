@@ -69,6 +69,11 @@ def run_cli():
                     continue
 
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position.txt"
+                if (
+                    not mapping_file.exists()
+                    and (CONFIG_DIR / "list_mrtg_data_position.example.txt").exists()
+                ):
+                    mapping_file = CONFIG_DIR / "list_mrtg_data_position.example.txt"
                 list_file = CONFIG_DIR / "list_mrtg_targets.csv"
 
                 template_file = (
@@ -133,6 +138,11 @@ def run_cli():
 
                 # Hardcoded defaults for Milestone 2 testing
                 mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.txt"
+                if (
+                    not mapping_file.exists()
+                    and (CONFIG_DIR / "list_mrtg_data_position_img_only.example.txt").exists()
+                ):
+                    mapping_file = CONFIG_DIR / "list_mrtg_data_position_img_only.example.txt"
                 list_file = CONFIG_DIR / "list_mrtg_targets.csv"
 
                 template_file = CONFIG_DIR / "MRTG-Monthly-Report-image-only.xlsx"
@@ -561,6 +571,11 @@ def run_report_command(
     if mode == "image":
         report_mode = "IMAGE_ONLY"
         mapping_file = config_root / "list_mrtg_data_position_img_only.txt"
+        if (
+            not mapping_file.exists()
+            and (config_root / "list_mrtg_data_position_img_only.example.txt").exists()
+        ):
+            mapping_file = config_root / "list_mrtg_data_position_img_only.example.txt"
         list_file = config_root / "list_mrtg_targets.csv"
         template_file = (
             config_root
@@ -571,6 +586,11 @@ def run_report_command(
     elif mode == "ocr":
         report_mode = "OCR_IMAGE"
         mapping_file = config_root / "list_mrtg_data_position.txt"
+        if (
+            not mapping_file.exists()
+            and (config_root / "list_mrtg_data_position.example.txt").exists()
+        ):
+            mapping_file = config_root / "list_mrtg_data_position.example.txt"
         list_file = config_root / "list_mrtg_targets.csv"
         template_file = (
             config_root / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"

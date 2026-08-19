@@ -102,14 +102,14 @@ Keep the private CSV local. It is deliberately excluded from release artifacts.
 
 ### Position maps and Excel templates
 
-All report inputs live in `config/`. These files are release inputs and are already bundled by the installer and portable package:
+All report inputs live in `config/`. The repository ships only sanitized examples:
 
-- `config/list_mrtg_data_position.txt`: OCR values and image ranges for the normal OCR report.
-- `config/list_mrtg_data_position_img_only.txt`: image ranges for the image-only report.
+- `config/list_mrtg_data_position.example.txt`: Example mapping of OCR values and image ranges for the normal OCR report.
+- `config/list_mrtg_data_position_img_only.example.txt`: Example mapping of image ranges for the image-only report.
 - `config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx`: OCR report template.
-- `config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx`: image-only report template.
+- `config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx`: Image-only report template.
 
-Do not copy or edit these files during normal setup. Keep the position maps aligned with the corresponding workbook layout. If the workbook layout changes, update the matching map and validate a report before distributing a new release.
+The application automatically reads `list_mrtg_data_position.txt` (and `_img_only.txt`) if present locally, or falls back to the `.example.txt` files. Active mapping files containing private service IDs are ignored by version control.
 
 ## Operation Modes
 

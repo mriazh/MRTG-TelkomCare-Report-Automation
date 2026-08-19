@@ -85,7 +85,9 @@ $ForbiddenFiles = @(
     "config\SID-MRTG.txt",
     "config\GRAPH-TITLE-MRTG.txt",
     "config\report-items.txt",
-    "config\list_mrtg_targets.csv"
+    "config\list_mrtg_targets.csv",
+    "config\list_mrtg_data_position.txt",
+    "config\list_mrtg_data_position_img_only.txt"
 )
 $ForbiddenDirs = @(
     "data",
@@ -146,8 +148,8 @@ Write-Host "Staging manifest validation passed." -ForegroundColor Green
 $RequiredDistFiles = @(
     "config\.env.example",
     "config\list_mrtg_targets.example.csv",
-    "config\list_mrtg_data_position.txt",
-    "config\list_mrtg_data_position_img_only.txt",
+    "config\list_mrtg_data_position.example.txt",
+    "config\list_mrtg_data_position_img_only.example.txt",
     "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
     "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "assets\app_icon.ico",

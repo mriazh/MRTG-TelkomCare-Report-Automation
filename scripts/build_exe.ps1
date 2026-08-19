@@ -123,8 +123,8 @@ if (-not (Test-Path $MklmlPath)) {
 $safeConfigs = @(
     "config\.env.example",
     "config\list_mrtg_targets.example.csv",
-    "config\list_mrtg_data_position.txt",
-    "config\list_mrtg_data_position_img_only.txt"
+    "config\list_mrtg_data_position.example.txt",
+    "config\list_mrtg_data_position_img_only.example.txt"
 )
 foreach ($file in $safeConfigs) {
     if (Test-Path $file) {
@@ -153,8 +153,8 @@ Write-Host "Verifying safe release assets..." -ForegroundColor Cyan
 $RequiredReleaseFiles = @(
     "config\.env.example",
     "config\list_mrtg_targets.example.csv",
-    "config\list_mrtg_data_position.txt",
-    "config\list_mrtg_data_position_img_only.txt",
+    "config\list_mrtg_data_position.example.txt",
+    "config\list_mrtg_data_position_img_only.example.txt",
     "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
     "config\MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "assets\app_icon.ico",

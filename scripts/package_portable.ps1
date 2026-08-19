@@ -105,7 +105,9 @@ $ForbiddenFiles = @(
     "config\SID-MRTG.txt",
     "config\GRAPH-TITLE-MRTG.txt",
     "config\report-items.txt",
-    "config\list_mrtg_targets.csv"
+    "config\list_mrtg_targets.csv",
+    "config\list_mrtg_data_position.txt",
+    "config\list_mrtg_data_position_img_only.txt"
 )
 $ForbiddenDirs = @(
     "data",
@@ -228,8 +230,8 @@ $RequiredZipFiles = @(
     "MRTG-TelkomCare-Portable/_internal/paddle/libs/mklml.dll",
     "MRTG-TelkomCare-Portable/config/.env.example",
     "MRTG-TelkomCare-Portable/config/list_mrtg_targets.example.csv",
-    "MRTG-TelkomCare-Portable/config/list_mrtg_data_position.txt",
-    "MRTG-TelkomCare-Portable/config/list_mrtg_data_position_img_only.txt",
+    "MRTG-TelkomCare-Portable/config/list_mrtg_data_position.example.txt",
+    "MRTG-TelkomCare-Portable/config/list_mrtg_data_position_img_only.example.txt",
     "MRTG-TelkomCare-Portable/config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx",
     "MRTG-TelkomCare-Portable/config/MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx",
     "MRTG-TelkomCare-Portable/assets/app_icon.ico"

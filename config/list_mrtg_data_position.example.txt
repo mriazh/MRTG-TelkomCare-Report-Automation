@@ -1,0 +1,17 @@
+Service Id : 4700001-EXAMPLE
+Inbound_Current: E14
+Inbound_Average: E15
+Inbound_Maximum: E16
+Outbound_Current: E17
+Outbound_Average: E18
+Outbound_Maximum: E19
+Image : B21-I35
+
+Service Id : EXAMPLE-GRAPH-TITLE
+Inbound_Current: N14
+Inbound_Average: N15
+Inbound_Maximum: N16
+Outbound_Current: N17
+Outbound_Average: N18
+Outbound_Maximum: N19
+Image : K21-R35
