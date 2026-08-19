@@ -16,14 +16,14 @@ Scraping requires a visible browser session because TelkomCare authentication ca
 
 The Windows release is provided as a portable distribution:
 
-- `MRTG-TelkomCare-v1.0.2-portable.zip`: extract-and-run package that does not install into system folders.
-- `MRTG-TelkomCare-Setup-v1.0.2.exe`: optional installer format (conditional / built from source with Inno Setup; not included in standard release package).
+- `MRTG-TelkomCare-v1.0.3-portable.zip`: extract-and-run package that does not install into system folders.
+- `MRTG-TelkomCare-Setup-v1.0.3.exe`: optional installer format (conditional / built from source with Inno Setup; not included in standard release package).
 
 At least one supported browser must be installed: Chrome, Edge, Firefox, Chromium, or Brave. The GUI labels detected browsers as `Installed` or `Not Installed` and disables unavailable choices.
 
 ## Installer Setup (If Built)
 
-1. Run `MRTG-TelkomCare-Setup-v1.0.2.exe`.
+1. Run `MRTG-TelkomCare-Setup-v1.0.3.exe`.
 2. Choose the installation directory. The default is `%LOCALAPPDATA%\Programs\MRTG TelkomCare`.
 3. Launch the application from the Start Menu, desktop shortcut if selected, or `MRTG-TelkomCare.exe`.
 4. Open the installed `config` directory.
@@ -47,7 +47,7 @@ Do not create the files in the repository root or in the current PowerShell dire
 
 ## Portable Setup
 
-1. Extract `MRTG-TelkomCare-v1.0.2-portable.zip` into a dedicated writable directory.
+1. Extract `MRTG-TelkomCare-v1.0.3-portable.zip` into a dedicated writable directory.
 2. Open the extracted `MRTG-TelkomCare-Portable\config` directory.
 3. Copy `.env.example` to `.env` and `list_mrtg_targets.example.csv` to `list_mrtg_targets.csv`.
 4. Edit the two private files, then run `MRTG-TelkomCare.exe` from the extracted package directory.

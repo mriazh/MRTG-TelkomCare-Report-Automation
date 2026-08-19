@@ -2,4 +2,4 @@
 MRTG-TelkomCare-Report-Automation Core Package
 """
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"

@@ -20,13 +20,13 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 # --- Expected values (release 1.0.2) --------------------------------------
-EXPECTED_VERSION = "1.0.2"
+EXPECTED_VERSION = "1.0.3"
 EXPECTED_EXE_NAME = "MRTG-TelkomCare.exe"
 EXPECTED_EXE_STEM = "MRTG-TelkomCare"
 EXPECTED_SETUP_ASSET_PREFIX = "MRTG-TelkomCare-Setup"
 EXPECTED_SETUP_ASSET_SUFFIX = ".exe"
-EXPECTED_SETUP_INSTALLER_NAME = "MRTG-TelkomCare-Setup-v1.0.2.exe"
-EXPECTED_PORTABLE_ARCHIVE_NAME = "MRTG-TelkomCare-v1.0.2-portable.zip"
+EXPECTED_SETUP_INSTALLER_NAME = "MRTG-TelkomCare-Setup-v1.0.3.exe"
+EXPECTED_PORTABLE_ARCHIVE_NAME = "MRTG-TelkomCare-v1.0.3-portable.zip"
 STALE_EXE_NAME = "MRTG-TelkomCare-Automation.exe"
 
 # --- Frozen packaging-text snippets (verified at release 1.0.2) -----------

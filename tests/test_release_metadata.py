@@ -31,13 +31,13 @@ import mrtg_automation
 from mrtg_automation import app_info
 
 # --- Expected values (release 1.0.2) --------------------------------------
-EXPECTED_VERSION = "1.0.2"
+EXPECTED_VERSION = "1.0.3"
 EXPECTED_EXE_NAME = "MRTG-TelkomCare.exe"
 EXPECTED_EXE_STEM = "MRTG-TelkomCare"
 EXPECTED_SETUP_ASSET_PREFIX = "MRTG-TelkomCare-Setup"
 EXPECTED_SETUP_ASSET_SUFFIX = ".exe"
-EXPECTED_SETUP_INSTALLER_NAME = "MRTG-TelkomCare-Setup-v1.0.2.exe"
-EXPECTED_PORTABLE_ARCHIVE_NAME = "MRTG-TelkomCare-v1.0.2-portable.zip"
+EXPECTED_SETUP_INSTALLER_NAME = "MRTG-TelkomCare-Setup-v1.0.3.exe"
+EXPECTED_PORTABLE_ARCHIVE_NAME = "MRTG-TelkomCare-v1.0.3-portable.zip"
 STALE_EXE_NAME = "MRTG-TelkomCare-Automation.exe"
 
 # --- Frozen packaging-text snippets (verified at release 1.0.2) -----------
@@ -56,8 +56,8 @@ PS1_RELEASE_REPORT = r"release\MRTG-TelkomCare-Setup-v$AppVersion.exe"
 
 # --- Naming regexes -------------------------------------------------------
 EXE_NAME_RE = re.compile(r"\bMRTG-TelkomCare\.exe\b")
-SETUP_ARTIFACT_RE = re.compile(r"MRTG-TelkomCare-Setup-v1\.0\.2\.exe")
-PORTABLE_ARTIFACT_RE = re.compile(r"MRTG-TelkomCare-v1\.0\.2-portable\.zip")
+SETUP_ARTIFACT_RE = re.compile(r"MRTG-TelkomCare-Setup-v1\.0\.3\.exe")
+PORTABLE_ARTIFACT_RE = re.compile(r"MRTG-TelkomCare-v1\.0\.3-portable\.zip")
 STALE_EXE_NAME_RE = re.compile(r"MRTG-TelkomCare-Automation\.exe")
 
 
