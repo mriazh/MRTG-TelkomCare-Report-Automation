@@ -98,30 +98,35 @@ class TestPathLayout(unittest.TestCase):
         self.assertTrue((output_root / "state").exists())
         self.assertTrue((output_root / "screenshots").exists())
 
-    def test_gui_explicit_location_controls_and_mode_disabling(self):
+    def test_gui_streamlined_layout_and_mode_switching(self):
         window = MainWindow()
 
-        # Check all 8 explicit location controls exist
-        self.assertTrue(hasattr(window, "env_file_input"))
-        self.assertTrue(hasattr(window, "targets_file_input"))
-        self.assertTrue(hasattr(window, "pos_ocr_input"))
-        self.assertTrue(hasattr(window, "pos_img_input"))
-        self.assertTrue(hasattr(window, "tpl_ocr_input"))
-        self.assertTrue(hasattr(window, "tpl_img_input"))
-        self.assertTrue(hasattr(window, "out_data_input"))
-        self.assertTrue(hasattr(window, "out_report_input"))
+        # Check clean config and output folder inputs exist
+        self.assertTrue(hasattr(window, "config_dir_input"))
+        self.assertTrue(hasattr(window, "output_root_input"))
 
-        # Test mode-aware disabling of img-only controls
+        # Verify all 8 redundant location controls and summary label are removed
+        self.assertFalse(hasattr(window, "env_file_input"))
+        self.assertFalse(hasattr(window, "targets_file_input"))
+        self.assertFalse(hasattr(window, "pos_ocr_input"))
+        self.assertFalse(hasattr(window, "pos_img_input"))
+        self.assertFalse(hasattr(window, "tpl_ocr_input"))
+        self.assertFalse(hasattr(window, "tpl_img_input"))
+        self.assertFalse(hasattr(window, "out_data_input"))
+        self.assertFalse(hasattr(window, "out_report_input"))
+        self.assertFalse(hasattr(window, "path_summary_label"))
+
+        # Test mode switching functions cleanly without dead references
         window.mode_cb.setCurrentText("Report")
         window.report_mode_cb.setCurrentText("ocr")
         window.on_mode_changed()
-        self.assertFalse(window.pos_img_input.isEnabled())
-        self.assertFalse(window.tpl_img_input.isEnabled())
+        self.assertFalse(window.targets_cb.isEnabled())
+        self.assertTrue(window.report_mode_cb.isEnabled())
 
-        window.report_mode_cb.setCurrentText("image")
+        window.mode_cb.setCurrentText("Scrape")
         window.on_mode_changed()
-        self.assertTrue(window.pos_img_input.isEnabled())
-        self.assertTrue(window.tpl_img_input.isEnabled())
+        self.assertTrue(window.targets_cb.isEnabled())
+        self.assertFalse(window.report_mode_cb.isEnabled())
 
 
 if __name__ == "__main__":

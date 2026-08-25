@@ -361,6 +361,10 @@ class SessionManager:
                         res_json = json.loads(response.read().decode("utf-8"))
                         result = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                         if re.fullmatch(r"[A-Za-z0-9]{3}", result):
+                            logger.info(f"CAPTCHA solved successfully with {model}: {result}")
+                            print(
+                                f"[AUTO LOGIN] CAPTCHA successfully read using model '{model}': {result}"
+                            )
                             return result
                         logger.warning(f"Model {model} returned invalid output format")
                         break  # Skip to next model

@@ -1,27 +1,29 @@
 import contextlib
 import io
 import os
+import re
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
+from dotenv import dotenv_values
 from PySide6.QtCore import QDate, QObject, QSettings, QThread, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
-    QFileDialog,
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMenu,
     QMessageBox,
-    QLineEdit,
     QPushButton,
     QTextEdit,
     QToolButton,
@@ -41,7 +43,6 @@ from mrtg_automation.shared.paths import (
     DEFAULT_OUTPUT_DIR,
     ROOT_DIR,
     ensure_directories,
-    get_config_files,
     get_output_paths,
 )
 from mrtg_automation.shared.resume_state import (
@@ -275,6 +276,8 @@ class MainWindow(QMainWindow):
         self.worker_thread = None
         self.worker = None
         self.pending_resume_state = None
+        self.has_incomplete_data = False
+        self._warned_incomplete_item = False
 
         self.update_manager = UpdateManager(self)
 
@@ -452,36 +455,6 @@ class MainWindow(QMainWindow):
         )
         form_layout.addRow("Output:", output_root_row)
 
-        cfg_files = get_config_files(self.config_dir)
-        self.env_file_input = self._create_readonly_input(cfg_files.env)
-        form_layout.addRow(".env Location:", self.env_file_input)
-
-        self.targets_file_input = self._create_readonly_input(cfg_files.targets)
-        form_layout.addRow("Targets CSV Location:", self.targets_file_input)
-
-        self.pos_ocr_input = self._create_readonly_input(cfg_files.position_ocr)
-        form_layout.addRow("Position OCR Location:", self.pos_ocr_input)
-
-        self.pos_img_input = self._create_readonly_input(cfg_files.position_img_only)
-        form_layout.addRow("Position Img-Only Location:", self.pos_img_input)
-
-        self.tpl_ocr_input = self._create_readonly_input(cfg_files.template_ocr)
-        form_layout.addRow("Template OCR Location:", self.tpl_ocr_input)
-
-        self.tpl_img_input = self._create_readonly_input(cfg_files.template_img_only)
-        form_layout.addRow("Template Img-Only Location:", self.tpl_img_input)
-
-        self.out_data_input = self._create_readonly_input(self.paths.data_dir)
-        form_layout.addRow("Output Data MRTG Location:", self.out_data_input)
-
-        self.out_report_input = self._create_readonly_input(self.paths.reports_dir)
-        form_layout.addRow("Output Report Excel MRTG Location:", self.out_report_input)
-
-        self.path_summary_label = QLabel()
-        self.path_summary_label.setStyleSheet("color: #555555; font-size: 11px;")
-        self.update_path_summary()
-        form_layout.addRow("Derived Paths:", self.path_summary_label)
-
         self.browser_cb = QComboBox()
 
         for b_type in ["Chrome", "Edge", "Firefox", "Chromium"]:
@@ -508,7 +481,7 @@ class MainWindow(QMainWindow):
 
         buttons_layout = QHBoxLayout()
         self.run_btn = QPushButton("Run")
-        self.run_btn.clicked.connect(self.run_command)
+        self.run_btn.clicked.connect(self.start_task)
 
         self.pause_btn = QPushButton("Pause")
         self.pause_btn.setEnabled(False)
@@ -544,66 +517,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(browse_button)
         return path_input, row
 
-    def _create_readonly_input(self, text=""):
-        inp = QLineEdit(str(text))
-        inp.setReadOnly(True)
-        inp.setToolTip(str(text))
-        inp.setStyleSheet("background-color: #f5f5f5; color: #333333;")
-        return inp
-
-    def update_location_controls_state(self):
-        if not hasattr(self, "mode_cb"):
-            return
-        op_mode = self.mode_cb.currentText()
-        if op_mode == "Scrape":
-            is_img_selected = self.targets_cb.currentText() in ["image", "all"]
-        elif op_mode == "Report":
-            is_img_selected = self.report_mode_cb.currentText() == "image"
-        else:  # Full Pipeline
-            is_img_selected = (self.targets_cb.currentText() in ["image", "all"]) or (
-                self.report_mode_cb.currentText() == "image"
-            )
-
-        if hasattr(self, "pos_img_input"):
-            self.pos_img_input.setEnabled(is_img_selected)
-        if hasattr(self, "tpl_img_input"):
-            self.tpl_img_input.setEnabled(is_img_selected)
-
-    def update_path_summary(self):
-        if hasattr(self, "path_summary_label"):
-            cfg = get_config_files(self.config_dir)
-            self.path_summary_label.setText(
-                f"Data: {self.paths.data_dir.name}  |  Reports: {self.paths.reports_dir.name}  |  Logs: {self.paths.logs_dir.name}  |  State: {self.paths.state_dir.name}"
-            )
-            tooltip_lines = [
-                f"Output Root: {self.output_root}",
-                f"  - output data MRTG: {self.paths.data_dir}",
-                f"  - output report Excel MRTG: {self.paths.reports_dir}",
-                f"  - logs: {self.paths.logs_dir}",
-                f"  - state: {self.paths.state_dir}",
-                f"  - screenshots: {self.paths.screenshots_dir}",
-                f"Config Root: {self.config_dir}",
-                f"  - .env: {cfg.env}",
-                f"  - list_mrtg_targets.csv: {cfg.targets}",
-                f"  - list_mrtg_data_position.txt: {cfg.position_ocr}",
-                f"  - list_mrtg_data_position_img_only.txt: {cfg.position_img_only}",
-                f"  - MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx: {cfg.template_ocr}",
-                f"  - MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx: {cfg.template_img_only}",
-            ]
-            self.path_summary_label.setToolTip("\n".join(tooltip_lines))
-
-        if hasattr(self, "env_file_input"):
-            cfg = get_config_files(self.config_dir)
-            self.env_file_input.setText(str(cfg.env))
-            self.targets_file_input.setText(str(cfg.targets))
-            self.pos_ocr_input.setText(str(cfg.position_ocr))
-            self.pos_img_input.setText(str(cfg.position_img_only))
-            self.tpl_ocr_input.setText(str(cfg.template_ocr))
-            self.tpl_img_input.setText(str(cfg.template_img_only))
-            self.out_data_input.setText(str(self.paths.data_dir))
-            self.out_report_input.setText(str(self.paths.reports_dir))
-            self.update_location_controls_state()
-
     def _set_path(self, setting_key: str, value: str, field: QLineEdit):
         selected = Path(value).expanduser().resolve()
         field.setText(str(selected))
@@ -615,7 +528,6 @@ class MainWindow(QMainWindow):
         self.reports_dir = self.paths.reports_dir
         self.logs_dir = self.paths.logs_dir
         ensure_directories(output_root=self.output_root)
-        self.update_path_summary()
 
     def choose_output_root(self):
         selected = QFileDialog.getExistingDirectory(
@@ -630,6 +542,10 @@ class MainWindow(QMainWindow):
         )
         if selected:
             self._set_path("config_dir", selected, self.config_dir_input)
+            valid, missing_items = self.validate_config_files()
+            if not valid:
+                for item in missing_items:
+                    self.log_message(f"[WARNING] Config file missing or incomplete: {item}")
 
     def get_selected_browser_type(self) -> str:
         data = self.browser_cb.currentData()
@@ -654,10 +570,130 @@ class MainWindow(QMainWindow):
             self.report_mode_cb.setEnabled(True)
             self.browser_cb.setEnabled(True)
             self.headless_cb.setEnabled(True)
-        self.update_location_controls_state()
 
     def log_message(self, message):
         self.log_text.append(message)
+        self._check_for_incompleteness(message)
+
+    def _check_for_incompleteness(self, message: str):
+        if message.startswith(
+            "[WARNING] Some data or screenshots are missing"
+        ) or message.startswith("[WARNING] Incomplete"):
+            return
+
+        # Scrape summary check
+        scrape_summary = re.search(r"SUMMARY:\s*(\d+)\s*OK,\s*(\d+)\s*N/A,\s*(\d+)\s*FAIL", message)
+        if scrape_summary:
+            na_cnt = int(scrape_summary.group(2))
+            fail_cnt = int(scrape_summary.group(3))
+            if na_cnt > 0 or fail_cnt > 0:
+                self.has_incomplete_data = True
+                warn = (
+                    f"[WARNING] Some data or screenshots are missing or incomplete in scrape "
+                    f"(N/A: {na_cnt}, FAIL: {fail_cnt})."
+                )
+                self.log_text.append(warn)
+                return
+
+        # Missing screenshots line in report
+        missing_sc = re.search(r"Missing screenshots:\s*([1-9]\d*)", message)
+        if missing_sc:
+            cnt = int(missing_sc.group(1))
+            self.has_incomplete_data = True
+            self.log_text.append(
+                f"[WARNING] Some data or screenshots are missing in report ({cnt} missing screenshot(s))."
+            )
+            return
+
+        # Missing mappings line in report
+        missing_map = re.search(r"Missing mappings\s*:\s*([1-9]\d*)", message)
+        if missing_map:
+            cnt = int(missing_map.group(1))
+            self.has_incomplete_data = True
+            self.log_text.append(
+                f"[WARNING] Some data or screenshots are missing in report ({cnt} missing mapping(s))."
+            )
+            return
+
+        # Failed inserts in report
+        failed_ins = re.search(r"Failed inserts\s*:\s*([1-9]\d*)", message)
+        if failed_ins:
+            cnt = int(failed_ins.group(1))
+            self.has_incomplete_data = True
+            self.log_text.append(
+                f"[WARNING] Some data or screenshots are missing in report ({cnt} failed insert(s))."
+            )
+            return
+
+        # OCR Fail in report
+        ocr_fail = re.search(r"OCR Fail\s*:\s*([1-9]\d*)", message)
+        if ocr_fail:
+            cnt = int(ocr_fail.group(1))
+            self.has_incomplete_data = True
+            self.log_text.append(
+                f"[WARNING] Some data or screenshots are missing or incomplete in report ({cnt} OCR fail(s))."
+            )
+            return
+
+        # OCR Partial in report
+        ocr_part = re.search(r"OCR Partial\s*:\s*([1-9]\d*)", message)
+        if ocr_part:
+            cnt = int(ocr_part.group(1))
+            self.has_incomplete_data = True
+            self.log_text.append(
+                f"[WARNING] Some data or screenshots are missing or incomplete in report ({cnt} OCR partial(s))."
+            )
+            return
+
+        # Individual indicators
+        if (
+            "error=missing_screenshot" in message
+            or "[!] N/A - Grafik belum ter-generate" in message
+        ):
+            self.has_incomplete_data = True
+            if not self._warned_incomplete_item:
+                self._warned_incomplete_item = True
+                self.log_text.append(
+                    "[WARNING] Some data or screenshots are missing or incomplete."
+                )
+
+    def get_completion_target_folder(self) -> Path:
+        mode = self.mode_cb.currentText()
+        if mode in ("Report", "Full Pipeline"):
+            return self.paths.reports_dir if self.paths.reports_dir.exists() else self.output_root
+        else:  # "Scrape"
+            return self.paths.data_dir if self.paths.data_dir.exists() else self.output_root
+
+    def create_completion_dialog(self, exit_code: int) -> QMessageBox:
+        msg_box = QMessageBox(self)
+        if exit_code == 0:
+            if self.has_incomplete_data:
+                msg_box.setWindowTitle("Task Finished with Warnings")
+                msg_box.setText(
+                    "Task finished with warnings.\n"
+                    "Some items may be incomplete or failed.\n"
+                    "Would you like to open the output folder to inspect?"
+                )
+                msg_box.setIcon(QMessageBox.Icon.Warning)
+            else:
+                msg_box.setWindowTitle("Task Completed")
+                msg_box.setText(
+                    "Task finished successfully.\nWould you like to open the output folder?"
+                )
+                msg_box.setIcon(QMessageBox.Icon.Information)
+        else:
+            msg_box.setWindowTitle("Task Finished with Warnings / Errors")
+            msg_box.setText(
+                f"Task finished with exit code {exit_code}.\n"
+                "Some items may be incomplete or failed.\n"
+                "Would you like to open the output folder to inspect?"
+            )
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+
+        open_btn = msg_box.addButton("Open Output Folder", QMessageBox.ButtonRole.ActionRole)
+        msg_box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+        msg_box.setDefaultButton(open_btn)
+        return msg_box
 
     def open_output_root_folder(self):
         try:
@@ -707,7 +743,93 @@ class MainWindow(QMainWindow):
                 return False, "End date cannot be before start date.", self.end_date_input
         return True, "", None
 
-    def run_command(self):
+    def validate_config_files(self) -> tuple[bool, list[str]]:
+        mode = self.mode_cb.currentText()
+        config_dir = Path(self.config_dir)
+        missing_items: list[str] = []
+
+        # a. list_mrtg_targets.csv: Required for Scrape, Report, Full Pipeline
+        if mode in ("Scrape", "Report", "Full Pipeline"):
+            targets_file = config_dir / "list_mrtg_targets.csv"
+            if not targets_file.exists():
+                missing_items.append("list_mrtg_targets.csv")
+
+        # b. If mode is "Report" or "Full Pipeline"
+        if mode in ("Report", "Full Pipeline"):
+            report_mode = self.report_mode_cb.currentText()
+            if report_mode == "ocr":
+                template_file = (
+                    config_dir
+                    / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+                )
+                if not template_file.exists():
+                    missing_items.append(
+                        "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom.xlsx"
+                    )
+
+                pos_file = config_dir / "list_mrtg_data_position.txt"
+                pos_example = config_dir / "list_mrtg_data_position.example.txt"
+                if not pos_file.exists() and not pos_example.exists():
+                    missing_items.append("list_mrtg_data_position.txt")
+            else:  # "image"
+                template_file = (
+                    config_dir
+                    / "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+                )
+                if not template_file.exists():
+                    missing_items.append(
+                        "MRTG-Monthly-Report-on-Internet-Bandwidth-Utilization-by-Telkom (Img only).xlsx"
+                    )
+
+                pos_file = config_dir / "list_mrtg_data_position_img_only.txt"
+                pos_example = config_dir / "list_mrtg_data_position_img_only.example.txt"
+                if not pos_file.exists() and not pos_example.exists():
+                    missing_items.append("list_mrtg_data_position_img_only.txt")
+
+        # c. If mode is "Scrape" or "Full Pipeline"
+        if mode in ("Scrape", "Full Pipeline"):
+            env_file = config_dir / ".env"
+            env_exists = env_file.exists()
+            if not env_exists:
+                missing_items.append(".env")
+
+            env_vals = dotenv_values(env_file) if env_exists else {}
+
+            def _get_val(key: str) -> str:
+                if env_exists and key in env_vals:
+                    val = env_vals[key]
+                    return str(val).strip() if val is not None else ""
+                return os.getenv(key, "").strip()
+
+            auto_login_enabled = _get_val("AUTO_LOGIN_ENABLED").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+            if auto_login_enabled:
+                user = _get_val("TELKOM_USER")
+                pwd = _get_val("TELKOM_PASSWORD")
+                if not user or not pwd:
+                    missing_items.append(
+                        ".env (auto-login enabled but TELKOM_USER or TELKOM_PASSWORD missing)"
+                    )
+
+        return len(missing_items) == 0, missing_items
+
+    def start_task(self):
+        valid, missing_items = self.validate_config_files()
+        if not valid:
+            for item in missing_items:
+                self.log_message(f"[WARNING] Config file missing or incomplete: {item}")
+            QMessageBox.warning(
+                self,
+                "Missing Configuration Files",
+                "The following configuration files are missing or incomplete in your config folder:\n\n"
+                + "\n".join(f"• {m}" for m in missing_items)
+                + "\n\nPlease check your config directory before running.",
+            )
+            return
+
         s_str = self.start_date_input.date().toString("yyyyMMdd")
         e_str = self.end_date_input.date().toString("yyyyMMdd")
 
@@ -734,6 +856,8 @@ class MainWindow(QMainWindow):
         self.pause_btn.setEnabled(True)
         self.pause_btn.setText("Pause")
         self.stop_btn.setEnabled(True)
+        self.has_incomplete_data = False
+        self._warned_incomplete_item = False
         self.log_message("--- Starting Task ---")
 
         if self.pending_resume_state:
@@ -815,6 +939,9 @@ class MainWindow(QMainWindow):
 
         self.worker_thread.start()
 
+    def run_command(self):
+        self.start_task()
+
     def on_worker_finished(self, exit_code):
         if exit_code == 130:
             self.log_message("--- Task Stopped by User ---")
@@ -836,6 +963,17 @@ class MainWindow(QMainWindow):
         self.pause_btn.setEnabled(False)
         self.pause_btn.setText("Pause")
         self.stop_btn.setEnabled(False)
+
+        msg_box = self.create_completion_dialog(exit_code)
+        msg_box.exec()
+        clicked = msg_box.clickedButton()
+        if clicked and clicked.text() == "Open Output Folder":
+            target_folder = self.get_completion_target_folder()
+            try:
+                target_folder.mkdir(parents=True, exist_ok=True)
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_folder)))
+            except Exception as e:
+                self.log_message(f"Could not open output folder: {e}")
 
     def closeEvent(self, event):
         try:

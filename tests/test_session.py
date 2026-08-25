@@ -299,5 +299,40 @@ class TestSessionManagerCleanup(unittest.TestCase):
         self.assertFalse(sm.is_logged_in())
 
 
+class TestCaptchaGeminiSolver(unittest.TestCase):
+    def test_solve_captcha_success_logging_and_print(self):
+        import io
+        from contextlib import redirect_stdout
+
+        mock_config = MagicMock()
+        mock_config.gemini_api_key = "test-key"
+        mock_config.gemini_models = ["gemini-3.8-flash"]
+        mock_config.LONG_TIMEOUT = 10
+
+        sm = SessionManager(config=mock_config)
+
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b'{"candidates": [{"content": {"parts": [{"text": "7kQ"}]}}]}'
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = None
+
+        stdout_buf = io.StringIO()
+        with (
+            patch("urllib.request.urlopen", return_value=mock_resp),
+            patch("mrtg_automation.scraper.session.logger") as mock_logger,
+            redirect_stdout(stdout_buf),
+        ):
+            res = sm._solve_captcha_with_gemini(b"fake_image_bytes")
+
+        self.assertEqual(res, "7kQ")
+        mock_logger.info.assert_called_with(
+            "CAPTCHA solved successfully with gemini-3.8-flash: 7kQ"
+        )
+        printed = stdout_buf.getvalue()
+        self.assertIn(
+            "[AUTO LOGIN] CAPTCHA successfully read using model 'gemini-3.8-flash': 7kQ", printed
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
