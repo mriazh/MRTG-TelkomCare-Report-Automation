@@ -41,6 +41,26 @@ alerts_enabled() {
   esac
 }
 
+format_duration() {
+  local total_s="${1:-0}"
+  if [ "$total_s" -lt 0 ] 2>/dev/null; then
+    total_s=0
+  fi
+  if [ "$total_s" -lt 60 ]; then
+    printf '%ds' "$total_s"
+  elif [ "$total_s" -lt 3600 ]; then
+    local m=$((total_s / 60))
+    local s=$((total_s % 60))
+    printf '%dm %ds' "$m" "$s"
+  else
+    local h=$((total_s / 3600))
+    local rem=$((total_s % 3600))
+    local m=$((rem / 60))
+    local s=$((rem % 60))
+    printf '%dh %dm %ds' "$h" "$m" "$s"
+  fi
+}
+
 notify() {
   local status="$1" message payload url
   local -a headers=(--header "Content-Type: application/json")
@@ -53,9 +73,19 @@ notify() {
   fi
 
   case "$status" in
-    start) message="MRTG TelkomCare daily report: STARTED (date ${YESTERDAY})." ;;
-    success) message="MRTG TelkomCare daily report: SUCCESS (date ${YESTERDAY})." ;;
-    failure) message="MRTG TelkomCare daily report: FAILED (date ${YESTERDAY}, exit code ${PIPELINE_EXIT_CODE})." ;;
+    start)
+      message="[MRTG TelkomCare Automation] START | mode=full | date=${DATE_ISO}"
+      ;;
+    success)
+      local elapsed_fmt
+      elapsed_fmt="$(format_duration "${ELAPSED:-0}")"
+      message="[MRTG TelkomCare Automation] SUCCESS | mode=full | date=${DATE_ISO} | elapsed=${elapsed_fmt} | records=${RECORDS_COUNT}"
+      ;;
+    failure | failed)
+      local elapsed_fmt
+      elapsed_fmt="$(format_duration "${ELAPSED:-0}")"
+      message="[MRTG TelkomCare Automation] FAILED | mode=full | date=${DATE_ISO} | elapsed=${elapsed_fmt} | error=exit code ${PIPELINE_EXIT_CODE}"
+      ;;
     *)
       echo "[WARNING] WhatsApp notification skipped: unknown status '${status}'" >&2
       return 0
@@ -85,7 +115,24 @@ notify() {
 }
 
 YESTERDAY="$("$PYTHON" -c 'from datetime import date, timedelta; print((date.today() - timedelta(days=1)).strftime("%Y%m%d"))')"
+if [ "${#YESTERDAY}" -eq 8 ]; then
+  DATE_ISO="${YESTERDAY:0:4}-${YESTERDAY:4:2}-${YESTERDAY:6:2}"
+else
+  DATE_ISO="$YESTERDAY"
+fi
 echo "[MRTG TelkomCare] Starting daily pipeline for date: $YESTERDAY"
+
+RECORDS_COUNT=18
+TARGETS_CSV="$APP_DIR/config/list_mrtg_targets.csv"
+if [ -r "$TARGETS_CSV" ]; then
+  if command -v awk >/dev/null 2>&1; then
+    COUNT="$(awk -F',' 'NR>1 && tolower($3) ~ /^(true|1|yes)$/ {c++} END {print c+0}' "$TARGETS_CSV" 2>/dev/null || echo "")"
+    if [ -n "$COUNT" ] && [ "$COUNT" -gt 0 ] 2>/dev/null; then
+      RECORDS_COUNT="$COUNT"
+    fi
+  fi
+fi
+RECORDS_COUNT="${TARGET_RECORDS_COUNT:-$RECORDS_COUNT}"
 
 WA_ALERT_ENABLED=""
 WA_GATEWAY_URL="http://localhost:3000"
@@ -118,8 +165,20 @@ else
   EXEC_CMD=("$PYTHON" -m mrtg_automation full --date "$YESTERDAY" --targets ocr --report-mode ocr)
 fi
 
+ELAPSED=0
 notify start
+START_TIME=$(date +%s)
 "${EXEC_CMD[@]}" || PIPELINE_EXIT_CODE=$?
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+if [ "$ELAPSED" -lt 0 ] 2>/dev/null; then
+  ELAPSED=0
+fi
+if [ -n "${PIPELINE_ELAPSED_SECONDS:-}" ]; then
+  ELAPSED="$PIPELINE_ELAPSED_SECONDS"
+elif [ -n "${MRTG_TEST_ELAPSED_SECONDS:-}" ]; then
+  ELAPSED="$MRTG_TEST_ELAPSED_SECONDS"
+fi
 
 if [ "$PIPELINE_EXIT_CODE" -eq 0 ]; then
   notify success

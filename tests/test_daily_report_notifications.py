@@ -10,6 +10,7 @@ never contacting a real gateway or the private ``config/.env``.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,9 +28,41 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_daily_report.sh"
 YESTERDAY = (date.today() - timedelta(days=1)).strftime("%Y%m%d")
+YESTERDAY_ISO = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
 GROUP_JID = "1234567890-placeholder@g.us"
 SECRET_DEVICE_ID = "device-secret-placeholder"
 DEFAULT_GATEWAY_PORT = 3000
+
+START_MSG = f"[MRTG TelkomCare Automation] START | mode=full | date={YESTERDAY_ISO}"
+
+
+def is_success_message(msg: str, *, elapsed: str | None = None, records: int = 18) -> bool:
+    if elapsed is not None:
+        expected = (
+            f"[MRTG TelkomCare Automation] SUCCESS | mode=full | date={YESTERDAY_ISO} | "
+            f"elapsed={elapsed} | records={records}"
+        )
+        return msg == expected
+    pattern = (
+        rf"^\[MRTG TelkomCare Automation\] SUCCESS \| mode=full \| date={re.escape(YESTERDAY_ISO)} \| "
+        rf"elapsed=(?:\d+h )?(?:\d+m )?\d+s \| records={records}$"
+    )
+    return bool(re.match(pattern, msg))
+
+
+def is_failed_message(msg: str, *, code: int | str, elapsed: str | None = None) -> bool:
+    if elapsed is not None:
+        expected = (
+            f"[MRTG TelkomCare Automation] FAILED | mode=full | date={YESTERDAY_ISO} | "
+            f"elapsed={elapsed} | error=exit code {code}"
+        )
+        return msg == expected
+    pattern = (
+        rf"^\[MRTG TelkomCare Automation\] FAILED \| mode=full \| date={re.escape(YESTERDAY_ISO)} \| "
+        rf"elapsed=(?:\d+h )?(?:\d+m )?\d+s \| error=exit code {code}$"
+    )
+    return bool(re.match(pattern, msg))
+
 
 STUB_PYTHON = """#!/usr/bin/env bash
 if [ "${1:-}" = "-c" ]; then
@@ -193,6 +226,8 @@ def runner(
         "WA_TARGET_JID",
         "PIPELINE_CODE",
         "PIPELINE_NOISE",
+        "PIPELINE_ELAPSED_SECONDS",
+        "MRTG_TEST_ELAPSED_SECONDS",
     ):
         env.pop(leaked, None)
 
@@ -278,11 +313,10 @@ def test_start_then_success_payload_hits_send_message(runner, gateway):
         request["headers"]["Content-Type"].startswith("application/json")
         for request in gateway.requests
     )
-    assert [message["message"] for message in _messages(gateway.requests)] == [
-        f"MRTG TelkomCare daily report: STARTED (date {YESTERDAY}).",
-        f"MRTG TelkomCare daily report: SUCCESS (date {YESTERDAY}).",
-    ]
-    assert all(message["phone"] == GROUP_JID for message in _messages(gateway.requests))
+    messages = _messages(gateway.requests)
+    assert messages[0]["message"] == START_MSG
+    assert is_success_message(messages[1]["message"], records=18)
+    assert all(message["phone"] == GROUP_JID for message in messages)
 
 
 def test_device_header_omitted_when_not_configured(runner, gateway):
@@ -305,10 +339,9 @@ def test_default_gateway_is_localhost_3000(runner, extra):
         assert result.returncode == 0
         assert len(state.requests) == 2
         assert all(request["path"] == "/send/message" for request in state.requests)
-        assert [message["message"] for message in _messages(state.requests)] == [
-            f"MRTG TelkomCare daily report: STARTED (date {YESTERDAY}).",
-            f"MRTG TelkomCare daily report: SUCCESS (date {YESTERDAY}).",
-        ]
+        messages = _messages(state.requests)
+        assert messages[0]["message"] == START_MSG
+        assert is_success_message(messages[1]["message"], records=18)
     finally:
         server.shutdown()
         server.server_close()
@@ -333,10 +366,10 @@ def test_pipeline_failure_sends_failure_notice_and_preserves_exit_code(runner, g
         PIPELINE_CODE="23",
     )
     assert result.returncode == 23
-    assert [message["message"] for message in _messages(gateway.requests)] == [
-        f"MRTG TelkomCare daily report: STARTED (date {YESTERDAY}).",
-        f"MRTG TelkomCare daily report: FAILED (date {YESTERDAY}, exit code 23).",
-    ]
+    messages = _messages(gateway.requests)
+    assert len(messages) == 2
+    assert messages[0]["message"] == START_MSG
+    assert is_failed_message(messages[1]["message"], code=23)
 
 
 def test_gateway_http_error_never_masks_pipeline_status(runner, gateway):
@@ -382,14 +415,147 @@ def test_messages_never_leak_group_jid_device_id_or_pipeline_detail(runner, gate
 
     messages = _messages(gateway.requests)
     assert len(messages) == 2
-    assert messages[-1]["message"] == (
-        f"MRTG TelkomCare daily report: FAILED (date {YESTERDAY}, exit code 9)."
-    )
+    assert is_failed_message(messages[-1]["message"], code=9)
     for leaked in ("sk-leak", "hunter2", "Traceback", "RuntimeError"):
         assert all(leaked not in message["message"] for message in messages)
     for secret in (GROUP_JID, SECRET_DEVICE_ID):
         assert secret not in result.stdout
         assert secret not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("elapsed_seconds", "expected_duration"),
+    [
+        ("0", "0s"),
+        ("45", "45s"),
+        ("59", "59s"),
+        ("60", "1m 0s"),
+        ("818", "13m 38s"),
+        ("3599", "59m 59s"),
+        ("3600", "1h 0m 0s"),
+        ("4418", "1h 13m 38s"),
+    ],
+)
+def test_elapsed_duration_formatting_success(
+    runner, gateway, elapsed_seconds: str, expected_duration: str
+):
+    result, _ = runner(
+        _enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"),
+        PIPELINE_ELAPSED_SECONDS=elapsed_seconds,
+    )
+    assert result.returncode == 0
+    messages = _messages(gateway.requests)
+    assert len(messages) == 2
+    assert messages[0]["message"] == START_MSG
+    expected_success = (
+        f"[MRTG TelkomCare Automation] SUCCESS | mode=full | date={YESTERDAY_ISO} | "
+        f"elapsed={expected_duration} | records=18"
+    )
+    assert messages[1]["message"] == expected_success
+
+
+@pytest.mark.parametrize(
+    ("elapsed_seconds", "expected_duration"),
+    [
+        ("45", "45s"),
+        ("818", "13m 38s"),
+        ("4418", "1h 13m 38s"),
+    ],
+)
+def test_elapsed_duration_formatting_failure(
+    runner, gateway, elapsed_seconds: str, expected_duration: str
+):
+    result, _ = runner(
+        _enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"),
+        PIPELINE_CODE="7",
+        PIPELINE_ELAPSED_SECONDS=elapsed_seconds,
+    )
+    assert result.returncode == 7
+    messages = _messages(gateway.requests)
+    assert len(messages) == 2
+    assert messages[0]["message"] == START_MSG
+    expected_failure = (
+        f"[MRTG TelkomCare Automation] FAILED | mode=full | date={YESTERDAY_ISO} | "
+        f"elapsed={expected_duration} | error=exit code 7"
+    )
+    assert messages[1]["message"] == expected_failure
+
+
+def test_notification_omits_output_path(runner, gateway):
+    result, _ = runner(
+        _enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"),
+        PIPELINE_ELAPSED_SECONDS="45",
+    )
+    assert result.returncode == 0
+    messages = _messages(gateway.requests)
+    assert len(messages) == 2
+    for msg in messages:
+        text = msg["message"]
+        assert "output=" not in text
+        assert "output" not in text.lower()
+        assert ".xlsx" not in text
+
+    gateway.requests.clear()
+    result_fail, _ = runner(
+        _enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"),
+        PIPELINE_CODE="12",
+        PIPELINE_ELAPSED_SECONDS="50",
+    )
+    assert result_fail.returncode == 12
+    messages_fail = _messages(gateway.requests)
+    assert len(messages_fail) == 2
+    for msg in messages_fail:
+        text = msg["message"]
+        assert "output=" not in text
+        assert "output" not in text.lower()
+        assert ".xlsx" not in text
+
+
+def test_notification_structure_and_prefixes(runner, gateway):
+    result, _ = runner(
+        _enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"),
+        PIPELINE_ELAPSED_SECONDS="45",
+    )
+    assert result.returncode == 0
+    messages = _messages(gateway.requests)
+    start_text = messages[0]["message"]
+    success_text = messages[1]["message"]
+
+    assert start_text.startswith("[MRTG TelkomCare Automation] START | mode=full | date=")
+    assert success_text.startswith("[MRTG TelkomCare Automation] SUCCESS | mode=full | date=")
+    assert " | elapsed=" in success_text
+    assert " | records=18" in success_text
+
+    gateway.requests.clear()
+    result_fail, _ = runner(
+        _enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"),
+        PIPELINE_CODE="31",
+        PIPELINE_ELAPSED_SECONDS="45",
+    )
+    assert result_fail.returncode == 31
+    failed_text = _messages(gateway.requests)[1]["message"]
+    assert failed_text.startswith("[MRTG TelkomCare Automation] FAILED | mode=full | date=")
+    assert " | elapsed=" in failed_text
+    assert " | error=exit code 31" in failed_text
+
+
+def test_dynamic_records_count_from_targets_csv(runner, gateway, tmp_path: Path):
+    app = tmp_path / "app"
+    csv_file = app / "config" / "list_mrtg_targets.csv"
+    csv_file.write_text(
+        "type,target,ocr_enabled,image_enabled\n"
+        "SID,111,true,true\n"
+        "SID,222,true,true\n"
+        "SID,333,false,true\n"
+        "Graph-title,444,true,true\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    result, _ = runner(_enabled_config(f"WA_GATEWAY_URL={gateway.url}\n"))
+    assert result.returncode == 0
+    messages = _messages(gateway.requests)
+    assert len(messages) == 2
+    assert " | records=3" in messages[1]["message"]
 
 
 def test_daily_command_contract_is_preserved(runner):
