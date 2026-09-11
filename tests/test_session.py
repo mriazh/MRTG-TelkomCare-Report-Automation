@@ -318,7 +318,7 @@ class TestCaptchaGeminiSolver(unittest.TestCase):
 
         stdout_buf = io.StringIO()
         with (
-            patch("urllib.request.urlopen", return_value=mock_resp),
+            patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen,
             patch("mrtg_automation.scraper.session.logger") as mock_logger,
             redirect_stdout(stdout_buf),
         ):
@@ -326,12 +326,17 @@ class TestCaptchaGeminiSolver(unittest.TestCase):
 
         self.assertEqual(res, "7kQ")
         mock_logger.info.assert_called_with(
-            "CAPTCHA solved successfully with gemini-3.8-flash: 7kQ"
+            "CAPTCHA solved successfully using model 'gemini-3.8-flash'"
         )
         printed = stdout_buf.getvalue()
         self.assertIn(
-            "[AUTO LOGIN] CAPTCHA successfully read using model 'gemini-3.8-flash': 7kQ", printed
+            "[AUTO LOGIN] CAPTCHA successfully read using model 'gemini-3.8-flash'", printed
         )
+        self.assertNotIn("7kQ", printed)
+        self.assertTrue(mock_urlopen.called)
+        sent_req = mock_urlopen.call_args[0][0]
+        self.assertNotIn("?key=", sent_req.full_url)
+        self.assertEqual(sent_req.get_header("X-goog-api-key"), "test-key")
 
 
 if __name__ == "__main__":

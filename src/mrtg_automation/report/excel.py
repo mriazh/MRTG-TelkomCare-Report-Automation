@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,21 @@ class ExcelReportGenerator:
         folders.sort()
         return folders
 
+    @staticmethod
+    def _save_workbook_atomically(wb, output_path: Path) -> None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = output_path.with_name(f".{output_path.name}.tmp")
+        try:
+            wb.save(tmp_path)
+            os.replace(tmp_path, output_path)
+        except Exception:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            raise
+
     def generate(
         self,
         report_mode: str,
@@ -111,6 +127,8 @@ class ExcelReportGenerator:
         """
         summary = {
             "success": False,
+            "report_created": False,
+            "complete": False,
             "dates_processed": 0,
             "targets": 0,
             "expected": 0,
@@ -285,11 +303,18 @@ class ExcelReportGenerator:
                     }
                     save_resume_state(resume_state)
 
+                # Pause check: block if paused, wake periodically to check cancel
+                while pause_event is not None and pause_event.is_set():
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
+                    time.sleep(0.3)
+
                 if cancel_event is not None and cancel_event.is_set():
                     print("[STOP] Report stop requested. Saving partial workbook before stopping.")
                     logger.warning("[STOP] Report stop requested. Stopping before next item.")
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    wb.save(output_path)
+                    self._save_workbook_atomically(wb, output_path)
+                    summary["report_created"] = True
+                    summary["complete"] = False
                     summary["cancelled"] = True
                     summary["success"] = False
                     if resume_state is not None:
@@ -297,16 +322,12 @@ class ExcelReportGenerator:
                         save_resume_state(resume_state)
                     return summary
 
-                # Pause check: block if paused, wake periodically to check cancel
-                while pause_event is not None and pause_event.is_set():
-                    if cancel_event is not None and cancel_event.is_set():
-                        break
-                    pause_event.wait(timeout=0.3)
-
                 if resume_mode and key in completed_keys:
                     completed_item = find_completed_item(key)
                     # Physical file validation: check if the screenshot file exists and is valid
-                    screenshot_path = data_dir / tanggal_str / f"{target_id}.png"
+                    screenshot_path = (
+                        data_dir / tanggal_str / build_canonical_filename(target_id, date_obj)
+                    )
                     if (
                         completed_item
                         and completed_item.get("status", "ok") != "error"
@@ -631,11 +652,17 @@ class ExcelReportGenerator:
                     completed_keys.add(key)
 
         logger.info(f"Saving workbook to {output_path}")
-        # Ensure parent directories exist
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        wb.save(output_path)
+        self._save_workbook_atomically(wb, output_path)
         logger.info("Report generation complete.")
-        summary["success"] = True
+        summary["report_created"] = True
+        summary["complete"] = (
+            summary["missing_screenshots"] == 0
+            and summary["missing_mappings"] == 0
+            and summary["failed_inserts"] == 0
+            and summary["ocr_fail"] == 0
+            and summary["ocr_partial"] == 0
+        )
+        summary["success"] = summary["complete"]
 
         if resume_state is not None:
             resume_state["current_phase"] = phase

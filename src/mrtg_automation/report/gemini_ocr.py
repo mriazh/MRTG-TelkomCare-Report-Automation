@@ -98,9 +98,12 @@ class GeminiLegendExtractor:
 
     def _try_model(self, model: str, payload: dict) -> tuple[str, str]:
         """Try a single Gemini model with retries for transient errors."""
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         data = json.dumps(payload).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
 
         try:
             req = urllib.request.Request(url, data=data, headers=headers)

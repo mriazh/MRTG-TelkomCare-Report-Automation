@@ -639,6 +639,11 @@ def run_report_command(
     date_groups = _group_dates_by_month(dates)
 
     total_summary = {
+        "report_created": 0,
+        "complete": 0,
+        "missing_screenshots": 0,
+        "missing_mappings": 0,
+        "failed_inserts": 0,
         "ocr_ok": 0,
         "ocr_partial": 0,
         "ocr_fail": 0,
@@ -675,11 +680,23 @@ def run_report_command(
             phase=phase,
         )
 
-        for key in total_summary:
-            total_summary[key] += month_summary.get(key, 0)
+        if month_summary.get("cancelled") or (cancel_event is not None and cancel_event.is_set()):
+            print(f"[STOP] Report generation stopped: {month_output_file.name}")
+            log_run_boundary("RUN END", "report exit_code=130 stopped_by_user")
+            return 130
 
-        if month_summary.get("success"):
-            print(f"[SUCCESS] {month_output_file.name} generated.")
+        for key in total_summary:
+            val = month_summary.get(key, 0)
+            if isinstance(val, bool):
+                total_summary[key] += 1 if val else 0
+            else:
+                total_summary[key] += val
+
+        if month_summary.get("complete"):
+            print(f"[SUCCESS] {month_output_file.name} generated completely.")
+        elif month_summary.get("report_created"):
+            overall_success = False
+            print(f"[WARNING] {month_output_file.name} generated with incomplete or missing data.")
         else:
             overall_success = False
             print(f"[FAIL] {month_output_file.name} was not generated successfully.")
@@ -691,6 +708,7 @@ def run_report_command(
     for key, value in total_summary.items():
         print(f"{key}: {value}")
     print("=" * 50)
+    log_run_boundary("RUN END", f"report exit_code={0 if overall_success else 1}")
     return 0 if overall_success else 1
 
 

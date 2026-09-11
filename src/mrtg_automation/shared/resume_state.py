@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -38,12 +39,21 @@ def save_resume_state(
     path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     target_dir = path.parent
     target_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp")
     try:
         state["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(path, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(state, f, indent=2, ensure_ascii=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
     except Exception as e:
         logger.error(f"Failed to save resume state: {e}")
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
 
 
 def clear_resume_state(

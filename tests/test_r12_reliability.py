@@ -36,6 +36,9 @@ class TestR12ReliabilitySlice(unittest.TestCase):
         self.assertFalse(res["complete"])
         self.assertEqual(res["error_reason"], "ALL_MODELS_FAILED")
         self.assertEqual(mock_urlopen.call_count, 9)
+        first_req = mock_urlopen.call_args_list[0][0][0]
+        self.assertNotIn("?key=", first_req.full_url)
+        self.assertEqual(first_req.get_header("X-goog-api-key"), "test_key")
 
     @patch("urllib.request.urlopen")
     def test_gemini_next_model_fallback(self, mock_urlopen):
@@ -267,7 +270,9 @@ class TestR12ReliabilitySlice(unittest.TestCase):
                 list_file=list_path,
             )
 
-        self.assertTrue(summary["success"])
+        self.assertTrue(summary["report_created"])
+        self.assertFalse(summary["complete"])
+        self.assertFalse(summary["success"])
         self.assertEqual(summary["ocr_ok"], 1)
         self.assertEqual(summary["ocr_fail"], 1)
         self.assertEqual(len(summary["unresolved_items"]), 1)

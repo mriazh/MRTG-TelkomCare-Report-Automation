@@ -351,20 +351,20 @@ class SessionManager:
         transient_codes = {429, 500, 502, 503, 504}
 
         for model in self.config.gemini_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.config.gemini_api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": self.config.gemini_api_key,
+            }
             for attempt in range(2):
                 try:
-                    req = urllib.request.Request(
-                        url, data=data, headers={"Content-Type": "application/json"}
-                    )
+                    req = urllib.request.Request(url, data=data, headers=headers)
                     with urllib.request.urlopen(req, timeout=self.config.LONG_TIMEOUT) as response:
                         res_json = json.loads(response.read().decode("utf-8"))
                         result = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
                         if re.fullmatch(r"[A-Za-z0-9]{3}", result):
-                            logger.info(f"CAPTCHA solved successfully with {model}: {result}")
-                            print(
-                                f"[AUTO LOGIN] CAPTCHA successfully read using model '{model}': {result}"
-                            )
+                            logger.info(f"CAPTCHA solved successfully using model '{model}'")
+                            print(f"[AUTO LOGIN] CAPTCHA successfully read using model '{model}'")
                             return result
                         logger.warning(f"Model {model} returned invalid output format")
                         break  # Skip to next model

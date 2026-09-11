@@ -246,6 +246,12 @@ class TelkomCareScraper:
                     }
                     save_resume_state(resume_state)
 
+                # Pause check: block if paused, wake periodically to check cancel
+                while pause_event is not None and pause_event.is_set():
+                    if cancel_event is not None and cancel_event.is_set():
+                        break
+                    time.sleep(0.3)
+
                 if cancel_event is not None and cancel_event.is_set():
                     print("[STOP] Scrape stop requested. Stopping before next item.")
                     logger.warning("[STOP] Scrape stop requested. Stopping before next item.")
@@ -254,12 +260,6 @@ class TelkomCareScraper:
                         resume_state["status"] = "stopped"
                         save_resume_state(resume_state)
                     return results
-
-                # Pause check: block if paused, wake periodically to check cancel
-                while pause_event is not None and pause_event.is_set():
-                    if cancel_event is not None and cancel_event.is_set():
-                        break
-                    pause_event.wait(timeout=0.3)
 
                 if resume_mode and key in completed_keys:
                     completed_item = find_completed_item(key)
