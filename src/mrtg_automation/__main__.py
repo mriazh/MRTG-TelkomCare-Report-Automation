@@ -1,5 +1,4 @@
 import argparse
-import os
 import sys
 
 from mrtg_automation.cli import run_cli, run_report_command, run_scrape_command
@@ -63,9 +62,6 @@ def main():
     subparsers.add_parser("gui", help="Launch Graphical User Interface", parents=[path_parser])
 
     args = parser.parse_args()
-
-    if getattr(args, "no_images", False):
-        os.environ["INSERT_IMAGES"] = "False"
 
     try:
         if args.command == "scrape":

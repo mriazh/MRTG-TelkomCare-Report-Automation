@@ -1,6 +1,5 @@
 import datetime
 import logging
-import os
 from pathlib import Path
 
 from .shared.logging import setup_logging
@@ -566,7 +565,9 @@ def run_report_command(
         date_filter = [d.strftime("%Y%m%d") for d in dates]
 
     if no_images:
-        os.environ["INSERT_IMAGES"] = "False"
+        insert_images_param = False
+    else:
+        insert_images_param = True
 
     if mode == "image":
         report_mode = "IMAGE_ONLY"
@@ -678,6 +679,7 @@ def run_report_command(
             resume_state=resume_state,
             resume_mode=resume_mode,
             phase=phase,
+            insert_images=insert_images_param,
         )
 
         if month_summary.get("cancelled") or (cancel_event is not None and cancel_event.is_set()):

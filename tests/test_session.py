@@ -276,7 +276,7 @@ class TestSessionManagerCleanup(unittest.TestCase):
     def test_is_logged_in_routes_and_webdriver_exception(self):
         from selenium.common.exceptions import WebDriverException
 
-        sm = SessionManager()
+        sm = SessionManager(base_url="https://telkomcare.telkom.co.id")
         mock_driver = MagicMock()
         sm.driver = mock_driver
 
@@ -286,13 +286,13 @@ class TestSessionManagerCleanup(unittest.TestCase):
         mock_driver.current_url = "https://example.com/public/mfa"
         self.assertFalse(sm.is_logged_in())
 
-        mock_driver.current_url = "https://example.com/mrtgnetcare2"
+        mock_driver.current_url = "https://telkomcare.telkom.co.id/mrtgnetcare2"
         self.assertTrue(sm.is_logged_in())
 
-        mock_driver.current_url = "https://example.com/mrtgnetcare2/subpath"
+        mock_driver.current_url = "https://telkomcare.telkom.co.id/mrtgnetcare2/subpath"
         self.assertTrue(sm.is_logged_in())
 
-        mock_driver.current_url = "https://example.com/other"
+        mock_driver.current_url = "https://telkomcare.telkom.co.id/other"
         type(mock_driver).page_source = PropertyMock(
             side_effect=WebDriverException("Page source error")
         )

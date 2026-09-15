@@ -179,21 +179,26 @@ class TestOCRProduction(unittest.TestCase):
         mock_gemini.assert_not_called()
 
     def test_threshold_validation_config(self):
-        expected = {
-            "abc": 0.85,
-            "-0.1": 0.85,
-            "1.1": 0.85,
-            "0.90": 0.90,
-        }
-        for raw_value, expected_value in expected.items():
+        # REQ-27: out-of-bounds and malformed values must raise RuntimeError
+        invalid_values = ["abc", "-0.1", "1.1"]
+        for raw_value in invalid_values:
             with self.subTest(raw_value=raw_value):
                 with patch.dict(
                     os.environ,
                     {"OCR_CONFIDENCE_THRESHOLD": raw_value},
                     clear=False,
                 ):
-                    config = Config()
-                    self.assertEqual(expected_value, config.ocr_confidence_threshold)
+                    with self.assertRaises(RuntimeError):
+                        Config()
+
+        # Valid value passes
+        with patch.dict(
+            os.environ,
+            {"OCR_CONFIDENCE_THRESHOLD": "0.90"},
+            clear=False,
+        ):
+            config = Config()
+            self.assertEqual(0.90, config.ocr_confidence_threshold)
 
     def test_gemini_observe_flag_config(self):
         # Default false

@@ -35,11 +35,17 @@ class Config:
         self.BASE_URL_GRAPH = os.getenv("BASE_URL_GRAPH", "")
 
         # Scraper constants & retries
-        self.WAIT_TIMEOUT = int(os.getenv("WAIT_TIMEOUT", 10))
-        self.LONG_TIMEOUT = int(os.getenv("LONG_TIMEOUT", 30))
-        self.LOGIN_WAIT = int(os.getenv("LOGIN_WAIT", 60))
-        self.MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
-        self.MAX_GRAPH_RETRIES = int(os.getenv("MAX_GRAPH_RETRIES", 2))
+        try:
+            self.WAIT_TIMEOUT = int(os.getenv("WAIT_TIMEOUT", 10))
+            self.LONG_TIMEOUT = int(os.getenv("LONG_TIMEOUT", 30))
+            self.LOGIN_WAIT = int(os.getenv("LOGIN_WAIT", 60))
+            self.MAX_RETRIES = int(os.getenv("MAX_RETRIES", 3))
+            self.MAX_GRAPH_RETRIES = int(os.getenv("MAX_GRAPH_RETRIES", 2))
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                "Configuration validation failed: "
+                f"numeric timeout/retry value is not a valid integer: {exc}"
+            ) from exc
 
         # Browser configuration
         self.browser_type = os.getenv("BROWSER_TYPE", "auto").lower()
@@ -90,24 +96,39 @@ class Config:
             if 0.0 <= threshold <= 1.0:
                 self.ocr_confidence_threshold = threshold
             else:
-                self.ocr_confidence_threshold = 0.85
-        except (ValueError, TypeError):
-            self.ocr_confidence_threshold = 0.85
+                raise ValueError(
+                    f"OCR_CONFIDENCE_THRESHOLD must be between 0.0 and 1.0, got {threshold}"
+                )
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(
+                f"Configuration validation failed: OCR_CONFIDENCE_THRESHOLD: {exc}"
+            ) from exc
         self.ocr_gemini_observe = os.getenv("OCR_GEMINI_OBSERVE", "false").lower() in (
             "true",
             "1",
             "yes",
         )
         try:
-            self.ocr_max_retries = max(1, min(10, int(os.getenv("OCR_MAX_RETRIES", "3"))))
-        except (ValueError, TypeError):
-            self.ocr_max_retries = 3
+            ocr_retries_raw = int(os.getenv("OCR_MAX_RETRIES", "3"))
+            if ocr_retries_raw < 1 or ocr_retries_raw > 10:
+                raise ValueError(f"OCR_MAX_RETRIES must be between 1 and 10, got {ocr_retries_raw}")
+            self.ocr_max_retries = ocr_retries_raw
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError(f"Configuration validation failed: OCR_MAX_RETRIES: {exc}") from exc
 
-        # Validate the completed environment at the boundary while retaining
-        # this legacy facade for existing scraper/report consumers. Invalid
-        # local input falls back to the safe defaults above and is never logged.
+        # REQ-27: raise immediately when configuration is malformed rather
+        # than silently falling back to unvalidated legacy defaults.
+        from .shared.config_models import ValidationError as PydanticValidationError
+
         try:
             self.settings = ApplicationSettings.from_legacy_config(self)
+        except PydanticValidationError as exc:
+            errors = exc.errors(include_url=False, include_context=False)
+            lines = [f"  {e.get('loc', '?')}: {e.get('msg', 'invalid value')}" for e in errors]
+            raise RuntimeError(
+                "Configuration validation failed. Fix the following and retry:\n" + "\n".join(lines)
+            ) from exc
         except Exception as exc:
-            logger.warning("Configuration validation failed: %s", type(exc).__name__)
-            self.settings = None
+            raise RuntimeError(
+                f"Configuration validation failed: {type(exc).__name__}: {exc}"
+            ) from exc

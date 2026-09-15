@@ -121,6 +121,7 @@ class ExcelReportGenerator:
         resume_state=None,
         resume_mode: bool = False,
         phase: str | None = None,
+        insert_images: bool = True,
     ):
         """
         Main orchestration logic for report generation.
@@ -577,8 +578,7 @@ class ExcelReportGenerator:
                             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
                 # Insert the image
-                insert_img_flag = os.environ.get("INSERT_IMAGES", "True").lower() == "true"
-                if start_row is not None and insert_img_flag:
+                if start_row is not None and insert_images:
                     success = insert_image_to_area(
                         sheet, path_gambar, start_row, start_col, end_row, end_col
                     )

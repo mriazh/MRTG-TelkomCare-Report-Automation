@@ -987,9 +987,7 @@ class MainWindow(QMainWindow):
                 try:
                     if thread.isRunning():
                         thread.quit()
-                        if not thread.wait(15000):
-                            thread.terminate()
-                            thread.wait(3000)
+                        thread.wait(5000)
                 except RuntimeError:
                     pass  # C++ object already deleted
         finally:

@@ -44,6 +44,46 @@ DASHBOARD_URL_PATTERNS = ["/mrtg", "/graph", "/monitoring", "/dashboard"]
 COOKIE_FILE_NAME = "cookies.json"
 
 
+def _should_use_no_sandbox() -> bool:
+    """Return True only when the process runs as root on POSIX or the operator
+    explicitly sets CHROME_NO_SANDBOX=true.  Standard desktop users keep the
+    Chromium sandbox enabled for process isolation."""
+    if os.environ.get("CHROME_NO_SANDBOX", "").lower() in ("true", "1", "yes"):
+        return True
+    if hasattr(os, "geteuid"):
+        try:
+            return os.geteuid() == 0
+        except OSError:
+            pass
+    return False
+
+
+def _enforce_profile_dir_permissions(profile_dir: Path) -> None:
+    """Set 0o700 on POSIX so stored cookies are owner-only."""
+    if os.name == "nt":
+        return
+    try:
+        os.chmod(profile_dir, 0o700)
+    except OSError:
+        pass
+
+
+def _is_expected_host(url: str, base_url: str) -> bool:
+    """Return True when the URL hostname belongs to the expected TelkomCare origin.
+
+    Accepts either the exact netloc of *base_url* or any host ending with
+    ``telkomcare.telkom.co.id``.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if not host:
+        return False
+    expected_host = urlparse(base_url).hostname or ""
+    if expected_host and (host == expected_host or host.endswith("." + expected_host)):
+        return True
+    return host == "telkomcare.telkom.co.id" or host.endswith(".telkomcare.telkom.co.id")
+
+
 def _clear_stale_chrome_wdm_locks(
     max_age_seconds: float = 60.0, time_func=time.time, wdm_dir: Path | None = None
 ) -> int:
@@ -124,7 +164,8 @@ class SessionManager:
             if self.headless:
                 opts.add_argument("--headless=new")
             opts.add_argument(f"--user-data-dir={self.profile_dir}")
-            opts.add_argument("--no-sandbox")
+            if _should_use_no_sandbox():
+                opts.add_argument("--no-sandbox")
             opts.add_argument("--disable-dev-shm-usage")
             opts.add_argument("--window-size=1920,1080")
             opts.add_experimental_option("excludeSwitches", ["enable-logging"])
@@ -144,6 +185,7 @@ class SessionManager:
 
         # Ensure profile dir exists
         self.profile_dir.mkdir(parents=True, exist_ok=True)
+        _enforce_profile_dir_permissions(self.profile_dir)
 
         opts = self._build_options()
         browser_type = getattr(self.config, "effective_browser_type", self.config.browser_type)
@@ -205,6 +247,11 @@ class SessionManager:
         parsed = urlparse(current_url)
         path = parsed.path.lower()
 
+        # REQ-29: reject foreign origins that merely mimic dashboard subpaths
+        if not _is_expected_host(current_url, self.base_url):
+            logger.warning("is_logged_in: rejecting unexpected host '%s'", parsed.hostname)
+            return False
+
         # Layer 1: Explicitly reject known public/login routes
         if path.startswith(("/public/login", "/public/mfa")):
             return False
@@ -243,6 +290,7 @@ class SessionManager:
         try:
             cookies = self.driver.get_cookies()
             self.profile_dir.mkdir(parents=True, exist_ok=True)
+            _enforce_profile_dir_permissions(self.profile_dir)
             cookie_path = self.profile_dir / COOKIE_FILE_NAME
             with open(cookie_path, "w") as f:
                 json.dump(cookies, f, indent=2)
