@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -94,7 +95,8 @@ class ExcelReportGenerator:
     @staticmethod
     def _save_workbook_atomically(wb, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = output_path.with_name(f".{output_path.name}.tmp")
+        token = f"{os.getpid()}_{uuid.uuid4().hex[:6]}"
+        tmp_path = output_path.with_name(f".{output_path.stem}.{token}.tmp")
         try:
             wb.save(tmp_path)
             os.replace(tmp_path, output_path)

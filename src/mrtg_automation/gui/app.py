@@ -595,6 +595,31 @@ class MainWindow(QMainWindow):
                 self.log_text.append(warn)
                 return
 
+        # REQ-33: match format_summary_table() output
+        # "OCR Summary: OK=<n> | Partial=<n> | Fail=<n>"
+        ocr_sum = re.search(r"OCR Summary:.*?Partial=(\d+)\s*\|\s*Fail=(\d+)", message)
+        if ocr_sum:
+            partial_cnt = int(ocr_sum.group(1))
+            fail_cnt = int(ocr_sum.group(2))
+            if partial_cnt > 0 or fail_cnt > 0:
+                self.has_incomplete_data = True
+                self.log_text.append(
+                    f"[WARNING] Some data or screenshots are missing or incomplete in report "
+                    f"(Partial: {partial_cnt}, Fail: {fail_cnt})."
+                )
+                return
+
+        # "Image inserted: <n> | Missing: <n>"
+        img_missing = re.search(r"Image inserted:.*?Missing:\s*(\d+)", message)
+        if img_missing:
+            cnt = int(img_missing.group(1))
+            if cnt > 0:
+                self.has_incomplete_data = True
+                self.log_text.append(
+                    f"[WARNING] Some data or screenshots are missing in report ({cnt} missing screenshot(s))."
+                )
+                return
+
         # Missing screenshots line in report
         missing_sc = re.search(r"Missing screenshots:\s*([1-9]\d*)", message)
         if missing_sc:
@@ -625,7 +650,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # OCR Fail in report
+        # OCR Fail in report (legacy individual indicator)
         ocr_fail = re.search(r"OCR Fail\s*:\s*([1-9]\d*)", message)
         if ocr_fail:
             cnt = int(ocr_fail.group(1))
@@ -635,7 +660,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # OCR Partial in report
+        # OCR Partial in report (legacy individual indicator)
         ocr_part = re.search(r"OCR Partial\s*:\s*([1-9]\d*)", message)
         if ocr_part:
             cnt = int(ocr_part.group(1))
@@ -987,9 +1012,17 @@ class MainWindow(QMainWindow):
                 try:
                     if thread.isRunning():
                         thread.quit()
-                        thread.wait(5000)
+                        if not thread.wait(2000):
+                            # REQ-34: worker still running — defer close, do NOT accept
+                            event.ignore()
+                            self.setWindowTitle("Stopping worker… please wait")
+                            self.log_text.append(
+                                "[STATUS] Worker still finishing; window will close shortly."
+                            )
+                            thread.finished.connect(self.close)
+                            return
                 except RuntimeError:
-                    pass  # C++ object already deleted
+                    pass
         finally:
             self.worker = None
             self.worker_thread = None

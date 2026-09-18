@@ -99,8 +99,9 @@ class TestHostValidation(unittest.TestCase):
             )
         )
 
-    def test_is_expected_host_accepts_subdomain(self):
-        self.assertTrue(
+    def test_is_expected_host_rejects_subdomain(self):
+        """REQ-35: Stage 3 enforces exact hostname; subdomains are rejected."""
+        self.assertFalse(
             _is_expected_host(
                 "https://sub.telkomcare.telkom.co.id/mrtgnetcare2",
                 "https://telkomcare.telkom.co.id",

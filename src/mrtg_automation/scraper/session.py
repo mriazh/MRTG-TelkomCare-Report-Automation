@@ -69,19 +69,22 @@ def _enforce_profile_dir_permissions(profile_dir: Path) -> None:
 
 
 def _is_expected_host(url: str, base_url: str) -> bool:
-    """Return True when the URL hostname belongs to the expected TelkomCare origin.
+    """Return True when the URL belongs to the expected TelkomCare origin.
 
-    Accepts either the exact netloc of *base_url* or any host ending with
-    ``telkomcare.telkom.co.id``.
+    REQ-35: scheme must be ``https`` and hostname must exactly equal the
+    *base_url* hostname (or the canonical ``telkomcare.telkom.co.id``).
+    Lookalike subdomains and HTTP downgrades are rejected.
     """
     parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return False
     host = parsed.hostname or ""
     if not host:
         return False
     expected_host = urlparse(base_url).hostname or ""
-    if expected_host and (host == expected_host or host.endswith("." + expected_host)):
-        return True
-    return host == "telkomcare.telkom.co.id" or host.endswith(".telkomcare.telkom.co.id")
+    if expected_host:
+        return host == expected_host
+    return host == "telkomcare.telkom.co.id"
 
 
 def _clear_stale_chrome_wdm_locks(
@@ -437,6 +440,8 @@ class SessionManager:
     def _wait_for_mrtg_dashboard_ready(self) -> bool:
         """Wait for authenticated dashboard to be fully ready.
 
+        REQ-35: verifies HTTPS scheme and exact expected hostname before
+        considering the dashboard ready.
         Waits up to LONG_TIMEOUT for both URL prefix and dashboard nav element.
         Does not click anything.
         """
@@ -447,7 +452,8 @@ class SessionManager:
                 ignored_exceptions=[StaleElementReferenceException],
             ).until(
                 lambda d: (
-                    d.current_url.startswith("https://telkomcare.telkom.co.id/mrtgnetcare2")
+                    _is_expected_host(d.current_url, self.base_url)
+                    and "/mrtgnetcare2" in d.current_url
                     and len(d.find_elements(By.XPATH, "//a[@data-id='2']")) > 0
                 )
             )

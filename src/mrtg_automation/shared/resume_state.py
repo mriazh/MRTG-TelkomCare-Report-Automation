@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -35,11 +36,12 @@ def load_resume_state(
 
 def save_resume_state(
     state: dict, state_dir: Path | str | None = None, output_dir: Path | str | None = None
-) -> None:
+) -> bool:
     path = get_resume_state_path(state_dir=state_dir, output_dir=output_dir)
     target_dir = path.parent
     target_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f".{path.name}.tmp")
+    token = f"{os.getpid()}_{uuid.uuid4().hex[:6]}"
+    tmp_path = path.with_name(f".{path.stem}.{token}.tmp")
     try:
         state["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -47,6 +49,7 @@ def save_resume_state(
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
+        return True
     except Exception as e:
         logger.error(f"Failed to save resume state: {e}")
         if tmp_path.exists():
@@ -54,6 +57,7 @@ def save_resume_state(
                 tmp_path.unlink()
             except OSError:
                 pass
+        return False
 
 
 def clear_resume_state(
