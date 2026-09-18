@@ -10,6 +10,15 @@ from mrtg_automation.report.excel import ExcelReportGenerator
 from mrtg_automation.scraper.session import _is_expected_host
 from mrtg_automation.shared.resume_state import save_resume_state
 
+try:
+    import PySide6  # noqa: F401
+
+    HAS_PYSIDE = True
+except ImportError:
+    HAS_PYSIDE = False
+
+SKIP_NO_PYSIDE = "PySide6 not installed"
+
 
 class TestCollisionFreeTempFilenames(unittest.TestCase):
     def test_excel_atomic_save_uses_pid_token_suffix(self):
@@ -68,6 +77,7 @@ class TestSaveResumeStateBoolReturn(unittest.TestCase):
             self.assertFalse(result)
 
 
+@unittest.skipUnless(HAS_PYSIDE, SKIP_NO_PYSIDE)
 class TestGuiSummaryRegexAlignment(unittest.TestCase):
     def test_ocr_summary_line_triggers_incomplete(self):
         from mrtg_automation.gui.app import MainWindow
@@ -106,6 +116,7 @@ class TestGuiSummaryRegexAlignment(unittest.TestCase):
         self.assertFalse(window.has_incomplete_data)
 
 
+@unittest.skipUnless(HAS_PYSIDE, SKIP_NO_PYSIDE)
 class TestDeferredWindowClose(unittest.TestCase):
     def test_close_event_ignored_when_worker_still_running(self):
         from mrtg_automation.gui.app import MainWindow
