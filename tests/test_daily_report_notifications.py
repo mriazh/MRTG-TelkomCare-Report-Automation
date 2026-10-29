@@ -164,6 +164,7 @@ def _handler_for(state: GatewayState) -> type[BaseHTTPRequestHandler]:
 
 
 def _serve(state: GatewayState, port: int) -> tuple[ThreadingHTTPServer, threading.Thread]:
+    ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer(("127.0.0.1", port), _handler_for(state))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -221,6 +222,8 @@ def runner(
     )
     for leaked in (
         "WA_ALERT_ENABLED",
+        "AUTO_CATCHUP",
+        "AUTO_CATCHUP_MAX_DAYS",
         "WA_GATEWAY_URL",
         "WA_DEVICE_ID",
         "WA_TARGET_JID",
@@ -242,7 +245,7 @@ def runner(
     xvfb_stub_active = tmp_path.name in resolved_xvfb
 
     def run(
-        config: str | None = None, *, xvfb: bool = True, **extra: str
+        config: str | None = None, *, xvfb: bool = True, args: list[str] | None = None, **extra: str
     ) -> tuple[subprocess.CompletedProcess, dict[str, Any]]:
         env_file = app / "config" / ".env"
         if config is None:
@@ -253,8 +256,12 @@ def runner(
             (stub_bin / "xvfb-run").unlink(missing_ok=True)
         env.update(extra)
 
+        cmd = [bash, (app / "scripts" / SCRIPT.name).as_posix()]
+        if args:
+            cmd.extend(args)
+
         result = subprocess.run(
-            [bash, (app / "scripts" / SCRIPT.name).as_posix()],
+            cmd,
             cwd=app,
             env=env,
             text=True,
@@ -577,3 +584,27 @@ def test_pipeline_runs_without_xvfb_when_unavailable(runner):
     assert "xvfb-run not found" in result.stdout
     assert observed["xvfb"] == []
     assert observed["pipeline"] == [EXPECTED_PIPELINE_ARGV]
+
+
+def test_auto_catchup_disabled_by_default(runner):
+    result, _ = runner(_enabled_config())
+    assert result.returncode == 0
+    assert "Scanning current month for missing dates (auto-catchup)" not in result.stdout
+
+
+def test_auto_catchup_enabled_via_env(runner):
+    result, _ = runner(_enabled_config("AUTO_CATCHUP=true\n"))
+    assert result.returncode == 0
+    assert "Scanning current month for missing dates (auto-catchup)" in result.stdout
+
+
+def test_auto_catchup_enabled_via_flag(runner):
+    result, _ = runner(_enabled_config(), args=["--catchup"])
+    assert result.returncode == 0
+    assert "Scanning current month for missing dates (auto-catchup" in result.stdout
+
+
+def test_auto_catchup_max_days_configuration(runner):
+    result, _ = runner(_enabled_config("AUTO_CATCHUP=true\nAUTO_CATCHUP_MAX_DAYS=5\n"))
+    assert result.returncode == 0
+    assert "max days: 5" in result.stdout

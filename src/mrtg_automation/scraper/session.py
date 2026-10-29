@@ -212,6 +212,13 @@ class SessionManager:
                 self.driver = webdriver.Chrome(service=service, options=opts)
                 browser_name = "Chromium" if browser_type == "chromium" else "Chrome"
                 logger.info(f"{browser_name} started with profile: {self.profile_dir}")
+
+            if self.driver:
+                try:
+                    self.driver.set_page_load_timeout(45)
+                except Exception as e:
+                    logger.debug(f"Failed to set page load timeout: {e}")
+
             return True
         except WebDriverException as e:
             logger.error(

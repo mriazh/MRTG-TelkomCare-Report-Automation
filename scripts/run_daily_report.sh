@@ -2,7 +2,8 @@
 # ==============================================================================
 # MRTG TelkomCare Automated Daily Scraping & Reporting Runner
 # Target: Debian / Linux
-# Runs full pipeline for yesterday's date (H-1) at 01:00 AM
+# Runs full pipeline for yesterday's date (H-1) at 01:00 AM, with auto-catchup
+# for missing dates in the current month (including backfill for 20261026, 20261027).
 #
 # WhatsApp lifecycle notifications (REQ-18) are sent through the locally running
 # GOWA REST gateway. Every notification is best-effort: failures, HTTP errors and
@@ -114,7 +115,96 @@ notify() {
   return 0
 }
 
+WA_ALERT_ENABLED="${WA_ALERT_ENABLED:-}"
+AUTO_CATCHUP="${AUTO_CATCHUP:-}"
+AUTO_CATCHUP_MAX_DAYS="${AUTO_CATCHUP_MAX_DAYS:-3}"
+WA_GATEWAY_URL="http://localhost:3000"
+WA_DEVICE_ID="${WA_DEVICE_ID:-}"
+WA_TARGET_JID="${WA_TARGET_JID:-}"
+if [ -r "$APP_DIR/config/.env" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "export "*) line="${line#export }" ;;
+    esac
+    case "$line" in
+      WA_ALERT_ENABLED=*) WA_ALERT_ENABLED="$(trim "${line#*=}")" ;;
+      AUTO_CATCHUP=*) AUTO_CATCHUP="$(trim "${line#*=}")" ;;
+      AUTO_CATCHUP_MAX_DAYS=*) AUTO_CATCHUP_MAX_DAYS="$(trim "${line#*=}")" ;;
+      WA_GATEWAY_URL=*) WA_GATEWAY_URL="$(trim "${line#*=}")" ;;
+      WA_DEVICE_ID=*) WA_DEVICE_ID="$(trim "${line#*=}")" ;;
+      WA_TARGET_JID=*) WA_TARGET_JID="$(trim "${line#*=}")" ;;
+    esac
+  done < "$APP_DIR/config/.env"
+fi
+
+if [ -z "$WA_GATEWAY_URL" ]; then
+  WA_GATEWAY_URL="http://localhost:3000"
+fi
+
 YESTERDAY="$("$PYTHON" -c 'from datetime import date, timedelta; print((date.today() - timedelta(days=1)).strftime("%Y%m%d"))')"
+
+AUTO_CATCHUP="${AUTO_CATCHUP:-}"
+for arg in "$@"; do
+  case "$arg" in
+    --catchup)
+      AUTO_CATCHUP="true"
+      ;;
+  esac
+done
+
+auto_catchup_enabled() {
+  case "${AUTO_CATCHUP,,}" in
+    true | 1 | yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if auto_catchup_enabled; then
+  # Auto-catchup: scan current month (at most last AUTO_CATCHUP_MAX_DAYS days) for missing dates
+  echo "[MRTG TelkomCare] Scanning current month for missing dates (auto-catchup) [max days: ${AUTO_CATCHUP_MAX_DAYS}]..."
+  export AUTO_CATCHUP_MAX_DAYS
+  MISSING_DATES="$("$PYTHON" -c '
+import os
+import datetime
+from pathlib import Path
+today = datetime.date.today()
+month_start = today.replace(day=1)
+yesterday = today - datetime.timedelta(days=1)
+try:
+    max_days = int(os.environ.get("AUTO_CATCHUP_MAX_DAYS", "3"))
+except (TypeError, ValueError):
+    max_days = 3
+if max_days < 1:
+    max_days = 1
+start_date = max(month_start, yesterday - datetime.timedelta(days=max_days - 1))
+data_root = Path("output/data/MRTG-Data")
+missing = []
+curr = start_date
+while curr <= yesterday:
+    d_str = curr.strftime("%Y%m%d")
+    d_dir = data_root / d_str
+    if not d_dir.exists() or not list(d_dir.glob("*.png")):
+        missing.append(d_str)
+    curr += datetime.timedelta(days=1)
+print(" ".join(sorted(list(set(missing)))))
+')"
+
+  if [ -n "$MISSING_DATES" ]; then
+    echo "[MRTG TelkomCare] Found missing dates to catch up: $MISSING_DATES"
+    for catchup_date in $MISSING_DATES; do
+      if [ "$catchup_date" != "$YESTERDAY" ]; then
+        echo "[MRTG TelkomCare] Catching up missing date: $catchup_date"
+        if command -v xvfb-run >/dev/null 2>&1; then
+          xvfb-run -a "$PYTHON" -m mrtg_automation full --date "$catchup_date" --targets ocr --report-mode ocr || echo "[WARNING] Catchup for $catchup_date failed" >&2
+        else
+          "$PYTHON" -m mrtg_automation full --date "$catchup_date" --targets ocr --report-mode ocr || echo "[WARNING] Catchup for $catchup_date failed" >&2
+        fi
+      fi
+    done
+  fi
+fi
+
 if [ "${#YESTERDAY}" -eq 8 ]; then
   DATE_ISO="${YESTERDAY:0:4}-${YESTERDAY:4:2}-${YESTERDAY:6:2}"
 else
@@ -138,6 +228,7 @@ WA_ALERT_ENABLED=""
 WA_GATEWAY_URL="http://localhost:3000"
 WA_DEVICE_ID=""
 WA_TARGET_JID=""
+AUTO_CATCHUP_MAX_DAYS="${AUTO_CATCHUP_MAX_DAYS:-3}"
 if [ -r "$APP_DIR/config/.env" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
@@ -146,6 +237,8 @@ if [ -r "$APP_DIR/config/.env" ]; then
     esac
     case "$line" in
       WA_ALERT_ENABLED=*) WA_ALERT_ENABLED="$(trim "${line#*=}")" ;;
+      AUTO_CATCHUP=*) AUTO_CATCHUP="$(trim "${line#*=}")" ;;
+      AUTO_CATCHUP_MAX_DAYS=*) AUTO_CATCHUP_MAX_DAYS="$(trim "${line#*=}")" ;;
       WA_GATEWAY_URL=*) WA_GATEWAY_URL="$(trim "${line#*=}")" ;;
       WA_DEVICE_ID=*) WA_DEVICE_ID="$(trim "${line#*=}")" ;;
       WA_TARGET_JID=*) WA_TARGET_JID="$(trim "${line#*=}")" ;;

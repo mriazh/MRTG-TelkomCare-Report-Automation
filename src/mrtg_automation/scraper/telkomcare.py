@@ -66,95 +66,149 @@ class TelkomCareScraper:
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def login(self) -> bool:
-        """Establish login session. Tries saved cookies first, then auto-login.
+        """Establish login session with 3-attempt retry loop, backoff, and diagnostic screenshot.
 
         Flow:
-        1. Start SessionManager (headless=True by default)
-        2. Try loading saved cookies from profile
-        3. Navigate to base_url
-        4. If is_logged_in() returns True: done (cookies worked)
-        5. If False: try auto_login()
-        6. After auto login, save cookies for next run
+        1. Start SessionManager
+        2. Try loading saved cookies / restoring session
+        3. Navigate to base_url / auto-login
+        4. Retry up to 3 times on timeout/connection/login errors with backoff
+        5. Save failure screenshot output/logs/login_failed_{date}.png on exhaustion
 
-        Returns True if logged in (or login just completed), False on error.
+        Returns True if logged in, False on error.
         """
-        try:
-            self.last_cancelled = False
-            if self._is_cancelled():
-                self.last_cancelled = True
-                logger.warning("[STOP] Login cancelled by user.")
-                return False
+        import datetime
+        from pathlib import Path
+        import time
 
-            logger.info("Starting login flow...")
-            self.session.start()
-            if self._is_cancelled():
-                self.last_cancelled = True
-                logger.warning("[STOP] Login cancelled by user.")
-                return False
-
-            if not self.session.driver:
-                return False
-
-            if self._is_cancelled():
-                self.last_cancelled = True
-                logger.warning("[STOP] Login cancelled by user.")
-                return False
-
-            if self.session.restore_persisted_session():
-                logger.info("Persisted session restored successfully.")
-                self._logged_in = True
-                return True
-
-            if self._is_cancelled():
-                self.last_cancelled = True
-                logger.warning("[STOP] Login cancelled by user.")
-                return False
-
-            if getattr(self.session.driver, "current_url", None) != self.base_url:
-                self.session.driver.get(self.base_url)
-
-            # Give page time to load
-            import time
-
-            for _ in range(10):
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            t_login_start = time.time()
+            try:
+                self.last_cancelled = False
                 if self._is_cancelled():
                     self.last_cancelled = True
                     logger.warning("[STOP] Login cancelled by user.")
                     return False
-                time.sleep(0.2)
 
-            if self.session.is_logged_in():
-                logger.info("Session valid (cookies from Chrome profile)")
-                self._logged_in = True
-                return True
+                logger.info(f"Starting login flow (attempt {attempt}/{max_attempts})...")
+                t_start = time.time()
+                if not self.session.start():
+                    logger.warning(f"Session start failed on attempt {attempt}")
+                    if attempt < max_attempts:
+                        time.sleep(5 * attempt)
+                        continue
+                    return False
 
-            if self._is_cancelled():
-                self.last_cancelled = True
-                logger.warning("[STOP] Login cancelled by user.")
-                return False
+                if self._is_cancelled():
+                    self.last_cancelled = True
+                    logger.warning("[STOP] Login cancelled by user.")
+                    return False
 
-            # Try auto-login if configured
-            if self.session.auto_login():
-                self._logged_in = True
-                return True
+                if not self.session.driver:
+                    return False
 
-            # Auto-login failed or not configured
-            if self._is_cancelled():
-                self.last_cancelled = True
-                logger.warning("[STOP] Login cancelled by user.")
-                return False
+                if self.session.restore_persisted_session():
+                    elapsed = time.time() - t_start
+                    logger.info(f"Persisted session restored successfully in {elapsed:.2f}s.")
+                    self._logged_in = True
+                    return True
 
-            # Verify login after auto-login
-            if self.session.is_logged_in():
-                logger.info("Auto-login successful")
-                self._logged_in = True
-                return True
+                if self._is_cancelled():
+                    self.last_cancelled = True
+                    logger.warning("[STOP] Login cancelled by user.")
+                    return False
 
-            logger.error("Login failed - auto-login was not successful")
-            return False
-        except Exception as e:
-            logger.error(f"Login flow failed: {e}")
-            return False
+                t_nav = time.time()
+                if getattr(self.session.driver, "current_url", None) != self.base_url:
+                    self.session.driver.get(self.base_url)
+                logger.info(f"Portal navigation took {time.time() - t_nav:.2f}s")
+
+                for _ in range(10):
+                    if self._is_cancelled():
+                        self.last_cancelled = True
+                        logger.warning("[STOP] Login cancelled by user.")
+                        return False
+                    time.sleep(0.2)
+
+                if self.session.is_logged_in():
+                    logger.info(
+                        f"Session valid (cookies from profile) in {time.time() - t_login_start:.2f}s"
+                    )
+                    self._logged_in = True
+                    return True
+
+                if self._is_cancelled():
+                    self.last_cancelled = True
+                    logger.warning("[STOP] Login cancelled by user.")
+                    return False
+
+                t_auto = time.time()
+                if self.session.auto_login():
+                    logger.info(f"Auto-login completed in {time.time() - t_auto:.2f}s")
+                    self._logged_in = True
+                    return True
+
+                if self._is_cancelled():
+                    self.last_cancelled = True
+                    logger.warning("[STOP] Login cancelled by user.")
+                    return False
+
+                if self.session.is_logged_in():
+                    logger.info(
+                        f"Auto-login verified successfully in {time.time() - t_login_start:.2f}s"
+                    )
+                    self._logged_in = True
+                    return True
+
+                logger.error(f"Login attempt {attempt} failed - not logged in")
+                if attempt < max_attempts:
+                    try:
+                        curr_url = self.session.driver.current_url
+                        ready_state = self.session.driver.execute_script(
+                            "return document.readyState"
+                        )
+                        logger.warning(
+                            f"Contextual failure state - URL: {curr_url}, readyState: {ready_state}"
+                        )
+                    except Exception:
+                        pass
+                    self.session.close()
+                    time.sleep(5 * attempt)
+                    continue
+
+            except Exception as e:
+                logger.error(f"Login flow exception on attempt {attempt}: {e}")
+                if self.session.driver:
+                    try:
+                        curr_url = self.session.driver.current_url
+                        ready_state = self.session.driver.execute_script(
+                            "return document.readyState"
+                        )
+                        logger.warning(
+                            f"Contextual exception state - URL: {curr_url}, readyState: {ready_state}, error: {e}"
+                        )
+                    except Exception:
+                        pass
+                if attempt < max_attempts:
+                    self.session.close()
+                    time.sleep(5 * attempt)
+                    continue
+
+        # Exhausted all attempts
+        logger.error("Login failed after 3 retry attempts.")
+        if self.session.driver:
+            try:
+                logs_dir = Path("output/logs")
+                logs_dir.mkdir(parents=True, exist_ok=True)
+                date_str = datetime.date.today().strftime("%Y%m%d")
+                screenshot_path = logs_dir / f"login_failed_{date_str}.png"
+                self.session.driver.save_screenshot(str(screenshot_path))
+                logger.error(f"Saved diagnostic login failure screenshot to {screenshot_path}")
+            except Exception as ex:
+                logger.debug(f"Failed to save login failure screenshot: {ex}")
+        self.session.close()
+        return False
 
     def _recreate_extractor(self, mode: str):
         """Recreate GraphExtractor with current driver and navigate to graph page.
