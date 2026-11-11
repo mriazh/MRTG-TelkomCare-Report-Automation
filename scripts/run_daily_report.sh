@@ -87,6 +87,11 @@ notify() {
       elapsed_fmt="$(format_duration "${ELAPSED:-0}")"
       message="[MRTG TelkomCare Automation] FAILED | mode=full | date=${DATE_ISO} | elapsed=${elapsed_fmt} | error=exit code ${PIPELINE_EXIT_CODE}"
       ;;
+    circuit_breaker)
+      local elapsed_fmt
+      elapsed_fmt="$(format_duration "${ELAPSED:-0}")"
+      message="[MRTG TelkomCare Automation] FAILED | mode=full | date=${DATE_ISO} | elapsed=${elapsed_fmt} | error=Portal Unresponsive (Circuit Breaker)"
+      ;;
     *)
       echo "[WARNING] WhatsApp notification skipped: unknown status '${status}'" >&2
       return 0
@@ -261,7 +266,10 @@ fi
 ELAPSED=0
 notify start
 START_TIME=$(date +%s)
-"${EXEC_CMD[@]}" || PIPELINE_EXIT_CODE=$?
+set +e
+PIPELINE_OUTPUT="$("${EXEC_CMD[@]}" 2>&1)"
+PIPELINE_EXIT_CODE=$?
+set -e
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 if [ "$ELAPSED" -lt 0 ] 2>/dev/null; then
@@ -277,7 +285,11 @@ if [ "$PIPELINE_EXIT_CODE" -eq 0 ]; then
   notify success
   echo "[MRTG TelkomCare] Daily pipeline completed for: $YESTERDAY"
 else
-  notify failure
+  if printf '%s\n' "$PIPELINE_OUTPUT" | grep -q 'CIRCUIT BREAKER'; then
+    notify circuit_breaker
+  else
+    notify failure
+  fi
   echo "[MRTG TelkomCare] Daily pipeline failed for: $YESTERDAY (exit code $PIPELINE_EXIT_CODE)" >&2
 fi
 

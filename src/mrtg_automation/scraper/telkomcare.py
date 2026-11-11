@@ -283,6 +283,7 @@ class TelkomCareScraper:
 
         consecutive_failures = 0
         retry_queue = []  # Targets that failed transiently (DataTables alert) — retried after main loop
+        circuit_breaker_consecutive = 0  # consecutive targets queued with transient portal errors
 
         for date_obj in dates:
             date_str = date_obj.strftime("%Y%m%d")
@@ -481,6 +482,47 @@ class TelkomCareScraper:
                                             f"\n[WARNING] 3 transient failures — queuing for retry pass: {target} ({error_msg})"
                                         )
                                         retry_queue.append((target, date_obj, mode, phase, key))
+                                        circuit_breaker_consecutive += 1
+                                        if circuit_breaker_consecutive >= 3:
+                                            # Circuit breaker tripped: the portal is unresponsive.
+                                            # Fast-fail the scrape immediately instead of continuing through
+                                            # the full target list (2-3 minutes instead of ~2.5 hours).
+                                            status_info["status"] = "error"
+                                            status_info["error"] = (
+                                                "portal_unresponsive_circuit_breaker"
+                                            )
+                                            logger.error(
+                                                "CIRCUIT BREAKER tripped: 3 consecutive targets failed with "
+                                                f"transient portal errors. Aborting scrape at {target} ({date_str})."
+                                            )
+                                            print(
+                                                "\n[CIRCUIT BREAKER] 3 consecutive transient portal failures — "
+                                                f"aborting scrape immediately at target={target} date={date_str}."
+                                            )
+                                            self.last_statuses[(target, date_obj)] = status_info
+                                            if target not in results:
+                                                results[target] = {}
+                                            results[target][date_obj] = None
+                                            if resume_state is not None:
+                                                item = {
+                                                    "phase": phase,
+                                                    "mode": mode,
+                                                    "date": date_str,
+                                                    "target": target,
+                                                    "status": "error",
+                                                    "error": "portal_unresponsive_circuit_breaker",
+                                                    "path": None,
+                                                    "key": key,
+                                                }
+                                                mark_item_completed(resume_state, item)
+                                                resume_state["phase_completed_items_count"] = (
+                                                    count_completed_items_for_phase(
+                                                        resume_state, phase
+                                                    )
+                                                )
+                                                resume_state["status"] = "stopped"
+                                                save_resume_state(resume_state)
+                                            return results
                                         consecutive_failures = 0
                                         break
                                     else:
@@ -510,6 +552,7 @@ class TelkomCareScraper:
                                         break
                         else:
                             consecutive_failures = 0
+                            circuit_breaker_consecutive = 0
                             relogin_attempts = 0
 
                         self.last_statuses[(target, date_obj)] = status_info
