@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import time
 import urllib.error
 import urllib.request
@@ -195,11 +196,31 @@ class SessionManager:
 
         try:
             if browser_type == "firefox":
-                service = FirefoxService(GeckoDriverManager().install())
+                try:
+                    service = FirefoxService(GeckoDriverManager().install())
+                except WebDriverException:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "WebDriverManager failed to install GeckoDriver (%s); "
+                        "falling back to system/default driver.",
+                        type(exc).__name__,
+                    )
+                    service = FirefoxService()
                 self.driver = webdriver.Firefox(service=service, options=opts)
                 logger.info(f"Firefox started with profile: {self.profile_dir}")
             elif browser_type == "edge":
-                service = EdgeService(EdgeChromiumDriverManager().install())
+                try:
+                    service = EdgeService(EdgeChromiumDriverManager().install())
+                except WebDriverException:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "WebDriverManager failed to install EdgeDriver (%s); "
+                        "falling back to system/default driver.",
+                        type(exc).__name__,
+                    )
+                    service = EdgeService()
                 self.driver = webdriver.Edge(service=service, options=opts)
                 logger.info(f"Edge started with profile: {self.profile_dir}")
             else:
@@ -207,8 +228,21 @@ class SessionManager:
                 chrome_type = (
                     ChromeType.CHROMIUM if browser_type == "chromium" else ChromeType.GOOGLE
                 )
-                driver_path = ChromeDriverManager(chrome_type=chrome_type).install()
-                service = ChromeService(driver_path)
+                try:
+                    driver_path = ChromeDriverManager(chrome_type=chrome_type).install()
+                except WebDriverException:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "WebDriverManager failed to install ChromeDriver (%s); "
+                        "falling back to system/default driver.",
+                        type(exc).__name__,
+                    )
+                    driver_path = shutil.which("chromedriver")
+                if driver_path:
+                    service = ChromeService(driver_path)
+                else:
+                    service = ChromeService()
                 self.driver = webdriver.Chrome(service=service, options=opts)
                 browser_name = "Chromium" if browser_type == "chromium" else "Chrome"
                 logger.info(f"{browser_name} started with profile: {self.profile_dir}")
